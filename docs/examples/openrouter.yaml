@@ -4,7 +4,7 @@
 # но разные модели. API-ключ задаётся переменной окружения.
 #
 # Запуск:
-#   OPENROUTER_API_KEY=... arca health --config docs/examples/openrouter.yaml
+#   OPENROUTER_API_KEY=... hey-duo health --config docs/examples/openrouter.yaml
 llm:
   participant_a:
     base_url: "https://openrouter.ai/api/v1"

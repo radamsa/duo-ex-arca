@@ -4,7 +4,7 @@
 #
 # Запуск:
 #   включить локальный сервер в LM Studio (порт 1234 по умолчанию)
-#   arca health --config docs/examples/lmstudio.yaml
+#   hey-duo health --config docs/examples/lmstudio.yaml
 llm:
   participant_a:
     base_url: "http://localhost:1234/v1"

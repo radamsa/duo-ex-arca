@@ -32,7 +32,7 @@ Duo ex Arca — персональный агент, в котором реше�
 ## Структура (задана в design.md)
 
 ```text
-cmd/arca/                  CLI (ask, trace, config, health)
+cmd/hey-duo/               CLI (ask, trace, config, health)
 internal/domain/           Task, Proposal, Critique, Decision, Debate
 internal/llm/              интерфейс, типы, OpenAI-compatible клиент, mock
 internal/debate/           engine, protocol, prompts, consensus

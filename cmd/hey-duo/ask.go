@@ -30,7 +30,7 @@ func parseAskFlags(args []string) (askFlags, error) {
 		switch {
 		case a == "--mode" || a == "-mode":
 			if i+1 >= len(args) {
-				return flags, fmt.Errorf("arca: флаг %s требует значение", a)
+				return flags, fmt.Errorf("hey-duo: флаг %s требует значение", a)
 			}
 			flags.mode = args[i+1]
 			i++
@@ -39,14 +39,14 @@ func parseAskFlags(args []string) (askFlags, error) {
 		case a == "--json":
 			flags.asJSON = true
 		case strings.HasPrefix(a, "-"):
-			return flags, fmt.Errorf("arca: неизвестный флаг %s", a)
+			return flags, fmt.Errorf("hey-duo: неизвестный флаг %s", a)
 		default:
 			positional = append(positional, a)
 		}
 	}
 
 	if len(positional) != 1 {
-		return flags, fmt.Errorf("arca: ожидался ровно один вопрос (получено аргументов: %d)", len(positional))
+		return flags, fmt.Errorf("hey-duo: ожидался ровно один вопрос (получено аргументов: %d)", len(positional))
 	}
 	flags.question = positional[0]
 	return flags, nil
@@ -59,7 +59,7 @@ func runAsk(args []string, cfg config.Config) error {
 		return err
 	}
 	if flags.question == "" {
-		return fmt.Errorf("arca: пустой вопрос")
+		return fmt.Errorf("hey-duo: пустой вопрос")
 	}
 
 	modeName := cfg.Debate.DefaultMode
@@ -68,7 +68,7 @@ func runAsk(args []string, cfg config.Config) error {
 	}
 	mode, ok := modeNameToMode(strings.ToLower(modeName))
 	if !ok {
-		return fmt.Errorf("arca: невалидный режим %q (fast/normal/deliberate/critical)", modeName)
+		return fmt.Errorf("hey-duo: невалидный режим %q (fast/normal/deliberate/critical)", modeName)
 	}
 
 	a, err := buildApp(cfg)
@@ -117,7 +117,7 @@ func printDecisionJSON(task domain.Task, decision domain.Decision) error {
 	}
 	data, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {
-		return fmt.Errorf("arca: сериализация решения: %w", err)
+		return fmt.Errorf("hey-duo: сериализация решения: %w", err)
 	}
 	fmt.Println(string(data))
 	return nil

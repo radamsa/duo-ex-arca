@@ -558,19 +558,19 @@ DECISION_CREATED
 Минимальный интерфейс:
 
 ```bash
-arca ask "Какую БД использовать?"
+hey-duo ask "Какую БД использовать?"
 ```
 
 ```bash
-arca ask --mode deliberate "..."
+hey-duo ask --mode deliberate "..."
 ```
 
 ```bash
-arca ask --json "..."
+hey-duo ask --json "..."
 ```
 
 ```bash
-arca trace <id>
+hey-duo trace <id>
 ```
 
 ---
@@ -613,7 +613,7 @@ storage:
 ```text
 duo-ex-arca/
 ├── cmd/
-│   └── arca/
+│   └── hey-duo/
 │       └── main.go
 │
 ├── internal/

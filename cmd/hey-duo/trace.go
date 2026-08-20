@@ -13,7 +13,7 @@ import (
 // runTrace выполняет подкоманду trace <task-id>.
 func runTrace(args []string, cfg config.Config) error {
 	if len(args) != 1 {
-		return fmt.Errorf("arca: trace требует ровно один аргумент — ID задачи")
+		return fmt.Errorf("hey-duo: trace требует ровно один аргумент — ID задачи")
 	}
 	taskID := args[0]
 

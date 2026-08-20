@@ -6,7 +6,7 @@
 # Запуск:
 #   ollama serve
 #   ollama pull llama3.1
-#   arca health --config docs/examples/ollama.yaml
+#   hey-duo health --config docs/examples/ollama.yaml
 llm:
   participant_a:
     base_url: "http://localhost:11434/v1"

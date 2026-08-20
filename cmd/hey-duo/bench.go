@@ -1,6 +1,6 @@
 // Подкоманда bench: прогнать JSONL-датасет через агента (TASK-150..153).
 //
-//	arca bench --config cfg.yaml --dataset benchmark.jsonl [--mode fast|normal|...] [--limit N]
+//	hey-duo bench --config cfg.yaml --dataset benchmark.jsonl [--mode fast|normal|...] [--limit N]
 //
 // baseline (fast) — одна модель без дебата; duo (normal/deliberate) — дебат.
 // Каждый прогон сохраняется в SQLite (таблица benchmark_runs).
@@ -38,7 +38,7 @@ func parseBenchFlags(args []string) (benchFlags, error) {
 		switch {
 		case a == "--dataset" || a == "-dataset":
 			if i+1 >= len(args) {
-				return flags, fmt.Errorf("arca: флаг %s требует путь к датасету", a)
+				return flags, fmt.Errorf("hey-duo: флаг %s требует путь к датасету", a)
 			}
 			flags.dataset = args[i+1]
 			i++
@@ -46,7 +46,7 @@ func parseBenchFlags(args []string) (benchFlags, error) {
 			flags.dataset = strings.TrimPrefix(a, "--dataset=")
 		case a == "--mode" || a == "-mode":
 			if i+1 >= len(args) {
-				return flags, fmt.Errorf("arca: флаг %s требует значение", a)
+				return flags, fmt.Errorf("hey-duo: флаг %s требует значение", a)
 			}
 			flags.mode = args[i+1]
 			i++
@@ -54,20 +54,20 @@ func parseBenchFlags(args []string) (benchFlags, error) {
 			flags.mode = strings.TrimPrefix(a, "--mode=")
 		case a == "--limit" || a == "-limit":
 			if i+1 >= len(args) {
-				return flags, fmt.Errorf("arca: флаг %s требует число", a)
+				return flags, fmt.Errorf("hey-duo: флаг %s требует число", a)
 			}
 			n, err := strconv.Atoi(args[i+1])
 			if err != nil || n < 0 {
-				return flags, fmt.Errorf("arca: невалидный --limit %q", args[i+1])
+				return flags, fmt.Errorf("hey-duo: невалидный --limit %q", args[i+1])
 			}
 			flags.limit = n
 			i++
 		default:
-			return flags, fmt.Errorf("arca: неизвестный флаг %s", a)
+			return flags, fmt.Errorf("hey-duo: неизвестный флаг %s", a)
 		}
 	}
 	if flags.dataset == "" {
-		return flags, fmt.Errorf("arca: bench требует --dataset <файл.jsonl>")
+		return flags, fmt.Errorf("hey-duo: bench требует --dataset <файл.jsonl>")
 	}
 	return flags, nil
 }
@@ -85,7 +85,7 @@ func runBench(args []string, cfg config.Config) error {
 	}
 	mode, ok := modeNameToMode(strings.ToLower(modeName))
 	if !ok {
-		return fmt.Errorf("arca: невалидный режим %q (fast/normal/deliberate/critical)", modeName)
+		return fmt.Errorf("hey-duo: невалидный режим %q (fast/normal/deliberate/critical)", modeName)
 	}
 
 	items, err := bench.LoadDataset(flags.dataset)
@@ -96,7 +96,7 @@ func runBench(args []string, cfg config.Config) error {
 		items = items[:flags.limit]
 	}
 	if len(items) == 0 {
-		return fmt.Errorf("arca: датасет %s пуст", flags.dataset)
+		return fmt.Errorf("hey-duo: датасет %s пуст", flags.dataset)
 	}
 
 	// Инструментированный pipeline: токены собираются обёрткой вокруг LLM.

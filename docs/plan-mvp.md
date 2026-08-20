@@ -46,7 +46,7 @@ SQLite driver следует выбрать такой, чтобы проект 
 
 ```text
 go.mod
-cmd/arca/
+cmd/hey-duo/
 internal/
 tests/
 docs/
@@ -615,7 +615,7 @@ DECISION_CREATED
 ### TASK-100
 
 ```bash
-arca ask "..."
+hey-duo ask "..."
 ```
 
 ---
@@ -623,8 +623,8 @@ arca ask "..."
 ### TASK-101
 
 ```bash
-arca ask --mode normal "..."
-arca ask --mode deliberate "..."
+hey-duo ask --mode normal "..."
+hey-duo ask --mode deliberate "..."
 ```
 
 ---
@@ -632,7 +632,7 @@ arca ask --mode deliberate "..."
 ### TASK-102
 
 ```bash
-arca ask --json "..."
+hey-duo ask --json "..."
 ```
 
 ---
@@ -640,7 +640,7 @@ arca ask --json "..."
 ### TASK-103
 
 ```bash
-arca trace <task-id>
+hey-duo trace <task-id>
 ```
 
 ---
@@ -648,8 +648,8 @@ arca trace <task-id>
 ### TASK-104
 
 ```bash
-arca config
-arca health
+hey-duo config
+hey-duo health
 ```
 
 ---

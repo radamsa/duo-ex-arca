@@ -9,7 +9,7 @@
 *.dylib
 
 # Собранный бинарник CLI
-/arca
+/hey-duo
 
 # Test binary, built with `go test -c`
 *.test

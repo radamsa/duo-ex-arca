@@ -1,13 +1,13 @@
-// Команда arca — CLI для Duo ex Arca (docs/plan-mvp.md, TASK-100..104).
+// Команда hey-duo — CLI для Duo ex Arca (docs/plan-mvp.md, TASK-100..104).
 //
 // Подкоманды:
 //
-//	arca ask "вопрос"                 — задать вопрос агенту
-//	arca ask --mode fast "вопрос"     — задать режим
-//	arca ask --json "вопрос"          — вывод решения в JSON
-//	arca trace <task-id>              — показать trace задачи
-//	arca config                       — показать конфигурацию
-//	arca health                       — проверить доступность LLM
+//	hey-duo ask "вопрос"                 — задать вопрос агенту
+//	hey-duo ask --mode fast "вопрос"     — задать режим
+//	hey-duo ask --json "вопрос"          — вывод решения в JSON
+//	hey-duo trace <task-id>              — показать trace задачи
+//	hey-duo config                       — показать конфигурацию
+//	hey-duo health                       — проверить доступность LLM
 //
 // Путь к конфигурации — флаг --config или переменная окружения ARCA_CONFIG;
 // по умолчанию ./arca.yaml.
@@ -39,7 +39,7 @@ func main() {
 	command := args[0]
 	rest := args[1:]
 
-	// Флаг --config может стоять после подкоманды: arca ask --config path "..."
+	// Флаг --config может стоять после подкоманды: hey-duo ask --config path "..."
 	cfgPath, rest, err := extractConfigFlag(rest)
 	if err != nil {
 		fail(err)
@@ -57,7 +57,7 @@ func main() {
 	case "bench":
 		fail(runBench(rest, loadConfig(cfgPath)))
 	default:
-		fmt.Fprintf(os.Stderr, "arca: неизвестная команда %q\n", command)
+		fmt.Fprintf(os.Stderr, "hey-duo: неизвестная команда %q\n", command)
 		usage()
 		os.Exit(2)
 	}
@@ -85,7 +85,7 @@ func extractConfigFlag(args []string) (path string, rest []string, err error) {
 		switch {
 		case a == "--config" || a == "-config":
 			if i+1 >= len(args) {
-				return "", nil, fmt.Errorf("arca: флаг %s требует путь к файлу", a)
+				return "", nil, fmt.Errorf("hey-duo: флаг %s требует путь к файлу", a)
 			}
 			path = args[i+1]
 			i++
@@ -102,13 +102,13 @@ func extractConfigFlag(args []string) (path string, rest []string, err error) {
 
 // usage печатает справку.
 func usage() {
-	fmt.Println("arca — Duo ex Arca: агент с двумя независимыми LLM.")
+	fmt.Println("hey-duo — Duo ex Arca: агент с двумя независимыми LLM.")
 	fmt.Println()
 	fmt.Println("Использование:")
-	fmt.Println("  arca ask --mode <mode> --json \"<вопрос>\"   задать вопрос агенту")
-	fmt.Println("  arca trace <task-id>                         показать trace задачи")
-	fmt.Println("  arca config                                 показать конфигурацию")
-	fmt.Println("  arca health                                 проверить доступность LLM")
+	fmt.Println("  hey-duo ask --mode <mode> --json \"<вопрос>\"   задать вопрос агенту")
+	fmt.Println("  hey-duo trace <task-id>                         показать trace задачи")
+	fmt.Println("  hey-duo config                                 показать конфигурацию")
+	fmt.Println("  hey-duo health                                 проверить доступность LLM")
 	fmt.Println()
 	fmt.Println("Режимы: fast, normal, deliberate, critical")
 	fmt.Println("Конфигурация: --config <путь> или $ARCA_CONFIG (по умолчанию ./arca.yaml)")
@@ -119,6 +119,6 @@ func fail(err error) {
 	if err == nil {
 		return
 	}
-	fmt.Fprintln(os.Stderr, "arca:", err)
+	fmt.Fprintln(os.Stderr, "hey-duo:", err)
 	os.Exit(1)
 }

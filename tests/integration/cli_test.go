@@ -20,20 +20,20 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// binPath — путь к собранному бинарнику arca.
+// binPath — путь к собранному бинарнику hey-duo.
 var binPath string
 
-// TestMain собирает бинарник arca один раз.
+// TestMain собирает бинарник hey-duo один раз.
 func TestMain(m *testing.M) {
-	dir, err := os.MkdirTemp("", "arca-int-")
+	dir, err := os.MkdirTemp("", "hey-duo-int-")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "integration: temp dir: ", err)
 		os.Exit(1)
 	}
 	defer os.RemoveAll(dir)
 
-	binPath = filepath.Join(dir, "arca")
-	cmd := exec.Command("go", "build", "-o", binPath, "github.com/radamsa/duo-ex-arca/cmd/arca")
+	binPath = filepath.Join(dir, "hey-duo")
+	cmd := exec.Command("go", "build", "-o", binPath, "github.com/radamsa/duo-ex-arca/cmd/hey-duo")
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "integration: сборка бинарника: ", err)
@@ -128,7 +128,7 @@ func okPhaseResponse(p phase) string {
 	}
 }
 
-// runCLI запускает бинарник arca и возвращает stdout/stderr/exit code.
+// runCLI запускает бинарник hey-duo и возвращает stdout/stderr/exit code.
 func runCLI(t *testing.T, args ...string) (string, int) {
 	t.Helper()
 	cmd := exec.Command(binPath, args...)
@@ -141,7 +141,7 @@ func runCLI(t *testing.T, args ...string) (string, int) {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			code = exitErr.ExitCode()
 		} else {
-			t.Fatalf("запуск arca: %v", err)
+			t.Fatalf("запуск hey-duo: %v", err)
 		}
 	}
 	return out.String(), code

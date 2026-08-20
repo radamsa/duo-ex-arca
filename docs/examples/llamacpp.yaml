@@ -4,7 +4,7 @@
 #
 # Запуск:
 #   llama-server -m model.gguf
-#   arca health --config docs/examples/llamacpp.yaml
+#   hey-duo health --config docs/examples/llamacpp.yaml
 llm:
   participant_a:
     base_url: "http://localhost:8080/v1"
