@@ -56,6 +56,9 @@ func main() {
 		fail(runHealth(rest, loadConfig(cfgPath)))
 	case "bench":
 		fail(runBench(rest, loadConfig(cfgPath)))
+	case "setup":
+		// setup не читает существующий конфиг — он его создаёт.
+		fail(runSetup(rest, cfgPath))
 	default:
 		fmt.Fprintf(os.Stderr, "hey-duo: неизвестная команда %q\n", command)
 		usage()
@@ -105,10 +108,12 @@ func usage() {
 	fmt.Println("hey-duo — Duo ex Arca: агент с двумя независимыми LLM.")
 	fmt.Println()
 	fmt.Println("Использование:")
+	fmt.Println("  hey-duo setup [--config <путь>]           интерактивная настройка")
 	fmt.Println("  hey-duo ask --mode <mode> --json \"<вопрос>\"   задать вопрос агенту")
 	fmt.Println("  hey-duo trace <task-id>                         показать trace задачи")
 	fmt.Println("  hey-duo config                                 показать конфигурацию")
-	fmt.Println("  hey-duo health                                 проверить доступность LLM")
+	fmt.Println("  hey-duo health --config <путь>                 проверить доступность LLM")
+	fmt.Println("  hey-duo bench --dataset <file.jsonl> [--mode]  прогон бенчмарка")
 	fmt.Println()
 	fmt.Println("Режимы: fast, normal, deliberate, critical")
 	fmt.Println("Конфигурация: --config <путь> или $ARCA_CONFIG (по умолчанию ./arca.yaml)")

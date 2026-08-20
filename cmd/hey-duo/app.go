@@ -16,8 +16,27 @@ import (
 	"github.com/radamsa/duo-ex-arca/internal/trace"
 )
 
-// llmHTTPClient — HTTP-клиент LLM-запросов с таймаутом.
-var llmHTTPClient = &http.Client{Timeout: 90 * time.Second}
+// defaultLLMTimeout — таймаут HTTP-запроса к LLM, если в конфиге 0.
+// Единственный источник истины по умолчанию — config.Default().
+var defaultLLMTimeout = time.Duration(config.Default().LLM.TimeoutSeconds) * time.Second
+
+// llmTimeout возвращает таймаут запроса к LLM из конфигурации.
+// 0 в конфиге означает значение по умолчанию.
+func llmTimeout(cfg config.Config) time.Duration {
+	if cfg.LLM.TimeoutSeconds > 0 {
+		return time.Duration(cfg.LLM.TimeoutSeconds) * time.Second
+	}
+	return defaultLLMTimeout
+}
+
+// newClient создаёт LLM-клиент участника с таймаутом из конфигурации
+// и ретраями для retryable ошибок.
+func newClient(p config.ParticipantConfig, timeout time.Duration) *llm.Client {
+	return llm.NewClient(p.BaseURL, p.Model, p.APIKey(),
+		llm.WithHTTPClient(&http.Client{Timeout: timeout}),
+		llm.WithRetries(3),
+	)
+}
 
 // app — собранный агент: runner и репозитории.
 type app struct {
@@ -30,22 +49,14 @@ type app struct {
 	cfg       config.Config
 }
 
-// newClient создаёт LLM-клиент участника с ретраями для retryable ошибок.
-func newClient(p config.ParticipantConfig) *llm.Client {
-	return llm.NewClient(p.BaseURL, p.Model, p.APIKey(),
-		llm.WithHTTPClient(llmHTTPClient),
-		llm.WithRetries(3),
-	)
-}
-
 // buildApp собирает pipeline: клиенты -> движок -> runner -> хранилище.
 func buildApp(cfg config.Config) (*app, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 
-	participantA := debate.NewParticipant("participant-a", newClient(cfg.LLM.ParticipantA))
-	participantB := debate.NewParticipant("participant-b", newClient(cfg.LLM.ParticipantB))
+	participantA := debate.NewParticipant("participant-a", newClient(cfg.LLM.ParticipantA, llmTimeout(cfg)))
+	participantB := debate.NewParticipant("participant-b", newClient(cfg.LLM.ParticipantB, llmTimeout(cfg)))
 	contextBuilder := ctxb.New()
 
 	db, err := sqlite.Open(cfg.Storage.Path)

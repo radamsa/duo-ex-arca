@@ -23,6 +23,10 @@ type Config struct {
 type LLMConfig struct {
 	ParticipantA ParticipantConfig `yaml:"participant_a"`
 	ParticipantB ParticipantConfig `yaml:"participant_b"`
+
+	// TimeoutSeconds — таймаут одного HTTP-запроса к LLM (секунды).
+	// 0 означает значение по умолчанию (см. Default).
+	TimeoutSeconds int `yaml:"timeout_seconds"`
 }
 
 // ParticipantConfig — настройки отдельного LLM-провайдера.
@@ -70,6 +74,10 @@ func Load(path string) (Config, error) {
 	return cfg, nil
 }
 
+// defaultTimeoutSeconds — таймаут запроса к LLM по умолчанию (5 минут):
+// локальные и медленные модели могут отвечать несколько минут.
+const defaultTimeoutSeconds = 300
+
 // Validate проверяет обязательные поля конфигурации.
 func (c Config) Validate() error {
 	if c.LLM.ParticipantA.BaseURL == "" {
@@ -83,6 +91,9 @@ func (c Config) Validate() error {
 	}
 	if c.LLM.ParticipantB.Model == "" {
 		return fmt.Errorf("config: participant_b.model обязателен")
+	}
+	if c.LLM.TimeoutSeconds < 0 {
+		return fmt.Errorf("config: timeout_seconds не может быть отрицательным: %d", c.LLM.TimeoutSeconds)
 	}
 	if !validMode(c.Debate.DefaultMode) {
 		return fmt.Errorf("config: невалидный debate.default_mode %q", c.Debate.DefaultMode)
@@ -113,6 +124,9 @@ func validMode(mode string) bool {
 // Провайдеры LLM не заполняются — они обязаны прийти из файла.
 func Default() Config {
 	return Config{
+		LLM: LLMConfig{
+			TimeoutSeconds: defaultTimeoutSeconds,
+		},
 		Debate: DebateConfig{
 			DefaultMode: "deliberate",
 			MaxRounds: map[string]int{

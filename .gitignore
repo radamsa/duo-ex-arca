@@ -11,6 +11,10 @@
 # Собранный бинарник CLI
 /hey-duo
 
+# Локальные артефакты setup: конфиг и база по умолчанию
+/arca.yaml
+/arca.db
+
 # Test binary, built with `go test -c`
 *.test
 

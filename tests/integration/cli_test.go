@@ -153,6 +153,7 @@ func writeConfig(t *testing.T, path, urlA, urlB string) {
 	cfg := fmt.Sprintf(`llm:
   participant_a: {base_url: %q, model: "mock-a"}
   participant_b: {base_url: %q, model: "mock-b"}
+  timeout_seconds: 60
 debate:
   default_mode: "normal"
   max_rounds: {normal: 1, deliberate: 3, critical: 6}

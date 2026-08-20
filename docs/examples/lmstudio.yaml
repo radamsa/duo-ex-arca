@@ -6,6 +6,7 @@
 #   включить локальный сервер в LM Studio (порт 1234 по умолчанию)
 #   hey-duo health --config docs/examples/lmstudio.yaml
 llm:
+  timeout_seconds: 300  # таймаут запроса к LLM, секунд; 0 = по умолчанию (медленные локальные модели отвечают минутами)
   participant_a:
     base_url: "http://localhost:1234/v1"
     model: "local-model-1"

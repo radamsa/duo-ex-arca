@@ -25,8 +25,8 @@ func runHealth(_ []string, cfg config.Config) error {
 		return err
 	}
 
-	clientA := newClient(cfg.LLM.ParticipantA)
-	clientB := newClient(cfg.LLM.ParticipantB)
+	clientA := newClient(cfg.LLM.ParticipantA, llmTimeout(cfg))
+	clientB := newClient(cfg.LLM.ParticipantB, llmTimeout(cfg))
 
 	ok := true
 	report("participant-a", cfg.LLM.ParticipantA, clientA, &ok)

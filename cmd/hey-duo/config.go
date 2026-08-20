@@ -18,6 +18,7 @@ func runConfigView(_ []string, cfg config.Config) error {
 	printParticipant(cfg.LLM.ParticipantA)
 	fmt.Println("Участник B:")
 	printParticipant(cfg.LLM.ParticipantB)
+	fmt.Printf("Таймаут запроса к LLM: %ds\n", int(llmTimeout(cfg).Seconds()))
 
 	fmt.Printf("Режим по умолчанию: %s\n", cfg.Debate.DefaultMode)
 	fmt.Printf("Порог консенсуса:   %.2f\n", cfg.Debate.ConsensusThreshold)

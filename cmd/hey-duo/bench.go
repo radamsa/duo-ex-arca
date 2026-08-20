@@ -178,8 +178,8 @@ func buildBenchApp(cfg config.Config, counter *bench.TokenCounter) (*app, error)
 	}
 
 	contextBuilder := ctxb.New()
-	participantA := debate.NewParticipant("participant-a", bench.Instrument(newClient(cfg.LLM.ParticipantA), counter))
-	participantB := debate.NewParticipant("participant-b", bench.Instrument(newClient(cfg.LLM.ParticipantB), counter))
+	participantA := debate.NewParticipant("participant-a", bench.Instrument(newClient(cfg.LLM.ParticipantA, llmTimeout(cfg)), counter))
+	participantB := debate.NewParticipant("participant-b", bench.Instrument(newClient(cfg.LLM.ParticipantB, llmTimeout(cfg)), counter))
 
 	db, err := sqlite.Open(cfg.Storage.Path)
 	if err != nil {

@@ -6,6 +6,7 @@
 # Запуск:
 #   OPENROUTER_API_KEY=... hey-duo health --config docs/examples/openrouter.yaml
 llm:
+  timeout_seconds: 300  # таймаут запроса к LLM, секунд; 0 = по умолчанию (медленные локальные модели отвечают минутами)
   participant_a:
     base_url: "https://openrouter.ai/api/v1"
     model: "openai/gpt-4o-mini"

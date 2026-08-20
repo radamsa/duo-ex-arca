@@ -73,7 +73,8 @@ func TestLoadJSON(t *testing.T) {
 	json := `{
 		"llm": {
 			"participant_a": {"base_url": "http://localhost:1234/v1", "model": "qwen2.5"},
-			"participant_b": {"base_url": "http://localhost:11434/v1", "model": "llama3"}
+			"participant_b": {"base_url": "http://localhost:11434/v1", "model": "llama3"},
+			"timeout_seconds": 600
 		},
 		"debate": {"default_mode": "normal", "max_rounds": {"normal": 1}, "consensus_threshold": 0.8},
 		"storage": {"type": "sqlite", "path": "./arca.db"}
@@ -84,6 +85,35 @@ func TestLoadJSON(t *testing.T) {
 	}
 	if cfg.LLM.ParticipantA.Model != "qwen2.5" || cfg.Debate.DefaultMode != "normal" {
 		t.Fatalf("JSON-конфиг загружен неверно: %+v", cfg)
+	}
+	if cfg.LLM.TimeoutSeconds != 600 {
+		t.Fatalf("timeout_seconds = %d, ожидалось 600", cfg.LLM.TimeoutSeconds)
+	}
+}
+
+// TestLoadTimeoutDefault — отсутствие timeout_seconds даёт дефолт 300.
+func TestLoadTimeoutDefault(t *testing.T) {
+	cfg, err := config.Load(writeFile(t, validYAML))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.LLM.TimeoutSeconds != 0 {
+		t.Fatalf("timeout_seconds в файле должен быть 0, получено %d", cfg.LLM.TimeoutSeconds)
+	}
+	if got := config.Default().LLM.TimeoutSeconds; got != 300 {
+		t.Fatalf("дефолтный timeout_seconds = %d, ожидалось 300", got)
+	}
+}
+
+// TestValidateNegativeTimeout — отрицательный таймаут отклоняется.
+func TestValidateNegativeTimeout(t *testing.T) {
+	cfg, err := config.Load(writeFile(t, validYAML))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	cfg.LLM.TimeoutSeconds = -1
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("ожидалась ошибка для отрицательного timeout_seconds")
 	}
 }
 
