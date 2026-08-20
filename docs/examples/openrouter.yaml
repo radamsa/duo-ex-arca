@@ -1,0 +1,29 @@
+# Пример конфигурации для OpenRouter (docs/plan-mvp.md, TASK-120).
+#
+# Оба участника используют один OpenAI-compatible endpoint OpenRouter,
+# но разные модели. API-ключ задаётся переменной окружения.
+#
+# Запуск:
+#   OPENROUTER_API_KEY=... arca health --config docs/examples/openrouter.yaml
+llm:
+  participant_a:
+    base_url: "https://openrouter.ai/api/v1"
+    model: "openai/gpt-4o-mini"
+    api_key_env: "OPENROUTER_API_KEY"
+
+  participant_b:
+    base_url: "https://openrouter.ai/api/v1"
+    model: "anthropic/claude-3.5-haiku"
+    api_key_env: "OPENROUTER_API_KEY"
+
+debate:
+  default_mode: "deliberate"
+  max_rounds:
+    normal: 1
+    deliberate: 3
+    critical: 6
+  consensus_threshold: 0.85
+
+storage:
+  type: "sqlite"
+  path: "./arca.db"

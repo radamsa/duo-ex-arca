@@ -1,0 +1,29 @@
+# Пример конфигурации для локального Ollama (docs/plan-mvp.md, TASK-121).
+#
+# Ollama предоставляет OpenAI-compatible endpoint на /v1.
+# Ключ не нужен — localhost.
+#
+# Запуск:
+#   ollama serve
+#   ollama pull llama3.1
+#   arca health --config docs/examples/ollama.yaml
+llm:
+  participant_a:
+    base_url: "http://localhost:11434/v1"
+    model: "llama3.1"
+
+  participant_b:
+    base_url: "http://localhost:11434/v1"
+    model: "llama3.1"
+
+debate:
+  default_mode: "normal"
+  max_rounds:
+    normal: 1
+    deliberate: 3
+    critical: 6
+  consensus_threshold: 0.85
+
+storage:
+  type: "sqlite"
+  path: "./arca.db"

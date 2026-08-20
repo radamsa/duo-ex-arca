@@ -1,0 +1,27 @@
+# Пример конфигурации для llama.cpp server (docs/plan-mvp.md, TASK-123).
+#
+# llama.cpp server поддерживает OpenAI-compatible API на /v1.
+#
+# Запуск:
+#   llama-server -m model.gguf
+#   arca health --config docs/examples/llamacpp.yaml
+llm:
+  participant_a:
+    base_url: "http://localhost:8080/v1"
+    model: "model.gguf"
+
+  participant_b:
+    base_url: "http://localhost:8080/v1"
+    model: "model.gguf"
+
+debate:
+  default_mode: "normal"
+  max_rounds:
+    normal: 1
+    deliberate: 3
+    critical: 6
+  consensus_threshold: 0.85
+
+storage:
+  type: "sqlite"
+  path: "./arca.db"

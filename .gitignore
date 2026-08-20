@@ -8,6 +8,9 @@
 *.so
 *.dylib
 
+# Собранный бинарник CLI
+/arca
+
 # Test binary, built with `go test -c`
 *.test
 

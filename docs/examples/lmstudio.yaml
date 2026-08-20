@@ -1,0 +1,27 @@
+# Пример конфигурации для LM Studio (docs/plan-mvp.md, TASK-122).
+#
+# LM Studio поднимает локальный OpenAI-compatible сервер.
+#
+# Запуск:
+#   включить локальный сервер в LM Studio (порт 1234 по умолчанию)
+#   arca health --config docs/examples/lmstudio.yaml
+llm:
+  participant_a:
+    base_url: "http://localhost:1234/v1"
+    model: "local-model-1"
+
+  participant_b:
+    base_url: "http://localhost:1234/v1"
+    model: "local-model-2"
+
+debate:
+  default_mode: "normal"
+  max_rounds:
+    normal: 1
+    deliberate: 3
+    critical: 6
+  consensus_threshold: 0.85
+
+storage:
+  type: "sqlite"
+  path: "./arca.db"

@@ -1,0 +1,5 @@
+{"id":"001","category":"storage","task":"Какую базу данных использовать для лёгкого приложения на Go?","expected":"Использовать SQLite"}
+{"id":"002","category":"language","task":"Какой язык рекомендуется в проекте Duo ex Arca?","expected":"Go"}
+{"id":"003","category":"tooling","task":"Какой пакет Go предпочтителен для SQLite в этом проекте?","expected":"modernc.org/sqlite"}
+{"id":"004","category":"architecture","task":"Через какой интерфейс агент должен обращаться к LLM?","expected":"OpenAI-compatible API"}
+{"id":"005","category":"process","task":"Что делать, если две модели не пришли к согласию в дебате?","expected":"Зафиксировать DISAGREEMENT"}
