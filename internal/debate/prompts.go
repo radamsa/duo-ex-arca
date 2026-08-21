@@ -222,11 +222,51 @@ func ConsensusPrompt(proposalA, proposalB, revisionA, revisionB domain.Proposal,
 // ---------------------------------------------------------------------------
 // Разбор JSON-ответов LLM (протокол)
 
+// extractJSON извлекает JSON-объект из ответа LLM: модели часто добавляют
+// пояснения вокруг JSON или оборачивают его в markdown-блоки.
+// Ищем первый '{' и последний '}' — всё остальное отбрасываем.
+func extractJSON(raw string) ([]byte, error) {
+	start := strings.IndexByte(raw, '{')
+	end := strings.LastIndexByte(raw, '}')
+	if start < 0 || end < start {
+		return nil, fmt.Errorf("в ответе не найден JSON-объект")
+	}
+	return []byte(raw[start : end+1]), nil
+}
+
+// deescapeJSON снимает двойное экранирование, которым некоторые модели
+// оборачивают JSON: {\"decision\":\"A\"} -> {"decision":"A"}.
+func deescapeJSON(body []byte) []byte {
+	var out []byte
+	for i := 0; i < len(body); i++ {
+		if body[i] == '\\' && i+1 < len(body) && (body[i+1] == '"' || body[i+1] == '\\' || body[i+1] == '{' || body[i+1] == '}') {
+			out = append(out, body[i+1])
+			i++
+			continue
+		}
+		out = append(out, body[i])
+	}
+	return out
+}
+
+// unmarshalJSON разбирает body; при неудаче снимает двойное экранирование
+// кавычек и пробует ещё раз.
+func unmarshalJSON(body []byte, dst any) error {
+	if err := json.Unmarshal(body, dst); err == nil {
+		return nil
+	}
+	return json.Unmarshal(deescapeJSON(body), dst)
+}
+
 // ParseProposal разбирает JSON-ответ LLM в доменную структуру Proposal.
 // ID и ParticipantID проставляет движок — модель их не возвращает.
 func ParseProposal(raw string) (domain.Proposal, error) {
 	var parsed proposalJSON
-	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+	body, err := extractJSON(raw)
+	if err != nil {
+		return domain.Proposal{}, fmt.Errorf("debate: невалидный JSON предложения: %w", err)
+	}
+	if err := unmarshalJSON(body, &parsed); err != nil {
 		return domain.Proposal{}, fmt.Errorf("debate: невалидный JSON предложения: %w", err)
 	}
 	if strings.TrimSpace(parsed.Decision) == "" {
@@ -247,7 +287,11 @@ func ParseProposal(raw string) (domain.Proposal, error) {
 // ParseCritique разбирает JSON-ответ LLM в доменную структуру Critique.
 func ParseCritique(raw string) (domain.Critique, error) {
 	var parsed critiqueJSON
-	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+	body, err := extractJSON(raw)
+	if err != nil {
+		return domain.Critique{}, fmt.Errorf("debate: невалидный JSON критики: %w", err)
+	}
+	if err := unmarshalJSON(body, &parsed); err != nil {
 		return domain.Critique{}, fmt.Errorf("debate: невалидный JSON критики: %w", err)
 	}
 	c := domain.Critique{
@@ -267,7 +311,11 @@ func ParseCritique(raw string) (domain.Critique, error) {
 // ParseConsensusVerdict разбирает JSON-ответ арбитра.
 func ParseConsensusVerdict(raw string) (ConsensusVerdict, error) {
 	var parsed ConsensusVerdict
-	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+	body, err := extractJSON(raw)
+	if err != nil {
+		return ConsensusVerdict{}, fmt.Errorf("debate: невалидный JSON вердикта: %w", err)
+	}
+	if err := unmarshalJSON(body, &parsed); err != nil {
 		return ConsensusVerdict{}, fmt.Errorf("debate: невалидный JSON вердикта: %w", err)
 	}
 	if !parsed.Agreement.Valid() {

@@ -182,6 +182,29 @@ func TestParseProposal(t *testing.T) {
 	}
 }
 
+// TestParseProposalDirty — модели часто добавляют пояснения вокруг JSON
+// или оборачивают его в markdown-блоки; парсер должен извлекать объект.
+func TestParseProposalDirty(t *testing.T) {
+	cases := []string{
+		"Вот моё предложение: " + validProposalJSON,
+		"```json\n" + validProposalJSON + "\n```",
+		"```\n" + validProposalJSON + "\n```",
+		"Преамбула.\n" + validProposalJSON + "\nПостскриптум.",
+		"{\"decision\": \"A\"}: пояснение после объекта",
+		"{\\\"decision\\\":\\\"A\\\",\\\"arguments\\\":[],\\\"confidence\\\":0.5}",
+		"Некоторые модели экранируют даже фигурные скобки: \\{\\\"decision\\\":\\\"A\\\"\\}",
+	}
+	for _, raw := range cases {
+		p, err := debate.ParseProposal(raw)
+		if err != nil {
+			t.Fatalf("ParseProposal(%q) вернул ошибку: %v", raw, err)
+		}
+		if p.Decision == "" {
+			t.Fatalf("решение не извлечено из %q", raw)
+		}
+	}
+}
+
 func TestParseProposalInvalid(t *testing.T) {
 	cases := []struct {
 		name string
