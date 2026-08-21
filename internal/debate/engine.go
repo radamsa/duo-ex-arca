@@ -37,6 +37,7 @@ type Engine struct {
 	maxRounds      map[domain.TaskMode]int
 	similarityThreshold float64
 	trace          trace.Recorder
+	notify         NotifyFunc
 }
 
 // EngineConfig — конфигурация движка.
@@ -62,6 +63,10 @@ type EngineConfig struct {
 	// Trace — рекордер событий трассировки (опционально;
 	// при nil события не записываются).
 	Trace trace.Recorder
+
+	// Notify — колбэк активности для отображения прогресса
+	// (опционально; при nil не вызывается).
+	Notify NotifyFunc
 }
 
 // NewEngine создаёт движок и проверяет конфигурацию.
@@ -108,7 +113,16 @@ func NewEngine(cfg EngineConfig) (*Engine, error) {
 		maxRounds:           cfg.MaxRounds,
 		similarityThreshold: cfg.SimilarityThreshold,
 		trace:               cfg.Trace,
+		notify:              cfg.Notify,
 	}, nil
+}
+
+// activity сообщает наблюдателю о стадии участника (опционально:
+// при nil Notify ничего не делает).
+func (e *Engine) activity(participantID, stage string) {
+	if e.notify != nil {
+		e.notify(participantID, stage)
+	}
 }
 
 // defaultSimilarityThreshold — порог смыслового совпадения по умолчанию,
@@ -230,6 +244,7 @@ func (e *Engine) runRound(ctx context.Context, task domain.Task, ctxText string,
 
 // propose выполняет для участника Initial Proposal (TASK-051).
 func (e *Engine) propose(ctx context.Context, p *Participant, task domain.Task, ctxText string, side string, roundNum int) (domain.Proposal, error) {
+	e.activity(p.ID, StagePropose)
 	msgs := ProposalPrompt(task, ctxText)
 	proposalObj, err := e.generateProposal(ctx, p, msgs)
 	if err != nil {
@@ -251,6 +266,7 @@ func (e *Engine) generateProposal(ctx context.Context, p *Participant, msgs []ll
 
 // critique выполняет для участника критику предложения оппонента (TASK-052).
 func (e *Engine) critique(ctx context.Context, p *Participant, task domain.Task, ctxText string, target domain.Proposal) (domain.Critique, error) {
+	e.activity(p.ID, StageCritique)
 	msgs := CritiquePrompt(task, target, ctxText)
 	resp, err := p.LLM.Generate(ctx, llm.GenerationRequest{Messages: msgs})
 	if err != nil {
@@ -265,6 +281,7 @@ func (e *Engine) critique(ctx context.Context, p *Participant, task domain.Task,
 
 // revise выполняет для участника пересмотр своего предложения (TASK-053).
 func (e *Engine) revise(ctx context.Context, p *Participant, task domain.Task, ctxText string, own domain.Proposal, peerCritique domain.Critique, side string, roundNum int) (domain.Proposal, error) {
+	e.activity(p.ID, StageRevise)
 	msgs := RevisionPrompt(task, own, peerCritique, ctxText)
 	revisionObj, err := e.generateProposal(ctx, p, msgs)
 	if err != nil {
@@ -280,6 +297,7 @@ func (e *Engine) evaluateConsensusParallel(ctx context.Context, task domain.Task
 	msgs := ConsensusPrompt(*round.ProposalA, *round.ProposalB, *round.RevisionA, *round.RevisionB, task.Constraints)
 
 	evaluate := func(p *Participant) (ConsensusVerdict, error) {
+		e.activity(p.ID, StageConsensus)
 		resp, err := p.LLM.Generate(ctx, llm.GenerationRequest{Messages: msgs})
 		if err != nil {
 			return ConsensusVerdict{}, fmt.Errorf("debate: участник %s (consensus): %w", p.ID, err)
@@ -349,6 +367,7 @@ func (e *Engine) checkSemanticMatchParallel(ctx context.Context, d1, d2 string) 
 	msgs := SimilarityPrompt(d1, d2)
 
 	check := func(p *Participant) (float64, error) {
+		e.activity(p.ID, StageSimilarity)
 		resp, err := p.LLM.Generate(ctx, llm.GenerationRequest{Messages: msgs})
 		if err != nil {
 			return 0, fmt.Errorf("debate: участник %s (similarity): %w", p.ID, err)

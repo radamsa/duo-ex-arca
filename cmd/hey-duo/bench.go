@@ -125,7 +125,9 @@ func runBench(args []string, cfg config.Config, dev bool) error {
 		totalTokens     int
 	)
 	for _, item := range items {
+		a.activity.start()
 		result, runErr := benchRunner.RunOne(ctx, item, mode, counter)
+		a.activity.stopAndWait()
 
 		fmt.Printf("%-6s %-6.2f %-12s %-6d %-8d %-14s %s\n",
 			item.ID, result.Score, result.Latency.Round(time.Millisecond),
@@ -193,6 +195,13 @@ func buildBenchApp(cfg config.Config, counter *bench.TokenCounter, dev bool) (*a
 	traceRepo := sqlite.NewTraceRepository(db)
 	recorder := newSQLiteRecorder(traceRepo)
 
+	var activity *activityReporter
+	var notify debate.NotifyFunc
+	if !dev {
+		activity = newActivityReporter(os.Stdout)
+		notify = activity.set
+	}
+
 	engine, err := debate.NewEngine(debate.EngineConfig{
 		ParticipantA:        participantA,
 		ParticipantB:        participantB,
@@ -201,6 +210,7 @@ func buildBenchApp(cfg config.Config, counter *bench.TokenCounter, dev bool) (*a
 		SimilarityThreshold: cfg.Debate.SimilarityThreshold,
 		MaxRounds:           modeRounds(cfg.Debate.MaxRounds),
 		Trace:               recorder,
+		Notify:              notify,
 	})
 	if err != nil {
 		return closeOnError(err)
@@ -211,6 +221,7 @@ func buildBenchApp(cfg config.Config, counter *bench.TokenCounter, dev bool) (*a
 		FastParticipant: participantA,
 		ContextBuilder:  contextBuilder,
 		Trace:           recorder,
+		Notify:          notify,
 	})
 	if err != nil {
 		return closeOnError(err)
@@ -224,5 +235,6 @@ func buildBenchApp(cfg config.Config, counter *bench.TokenCounter, dev bool) (*a
 		traces:    traceRepo,
 		benchRepo: sqlite.NewBenchmarkRepository(db),
 		cfg:       cfg,
+		activity:  activity,
 	}, nil
 }

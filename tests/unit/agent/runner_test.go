@@ -301,3 +301,50 @@ func TestRunFastPromptContainsTask(t *testing.T) {
 		t.Fatalf("промпт не содержит задачи: %s", all.String())
 	}
 }
+
+// TestRunFastNotifiesActivity — FAST сообщает активность участника.
+func TestRunFastNotifiesActivity(t *testing.T) {
+	mockFast := llm.NewMock()
+	mockA := llm.NewMock()
+	mockB := llm.NewMock()
+
+	engine, err := debate.NewEngine(debate.EngineConfig{
+		ParticipantA:      debate.NewParticipant("participant-a", mockA),
+		ParticipantB:      debate.NewParticipant("participant-b", mockB),
+		ContextBuilder:    ctxb.New(),
+		ConsensusThreshold: 0.8,
+		MaxRounds: map[domain.TaskMode]int{
+			domain.NORMAL:     1,
+			domain.DELIBERATE: 1,
+			domain.CRITICAL:   1,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var gotID, gotStage string
+	runner, err := agent.NewRunner(agent.RunnerConfig{
+		Engine:          engine,
+		FastParticipant: debate.NewParticipant("participant-fast", mockFast),
+		ContextBuilder:  ctxb.New(),
+		Notify: func(participantID, stage string) {
+			gotID, gotStage = participantID, stage
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mockFast.Respond(debate.ProposalToText(domain.Proposal{Decision: "SQLite", Confidence: 0.9}), llm.Usage{})
+	if _, _, err := runner.Run(context.Background(), mustTask(t, domain.FAST)); err != nil {
+		t.Fatalf("Run вернул ошибку: %v", err)
+	}
+
+	if gotID != "participant-fast" {
+		t.Fatalf("participantID = %q, ожидался participant-fast", gotID)
+	}
+	if gotStage != debate.StagePropose {
+		t.Fatalf("stage = %q, ожидалась %q", gotStage, debate.StagePropose)
+	}
+}

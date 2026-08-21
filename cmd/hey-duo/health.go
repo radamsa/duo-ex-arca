@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/radamsa/duo-ex-arca/internal/config"
@@ -28,28 +29,41 @@ func runHealth(_ []string, cfg config.Config, dev bool) error {
 	clientA := maybeDebug("participant-a", newClient(cfg.LLM.ParticipantA, llmTimeout(cfg)), dev)
 	clientB := maybeDebug("participant-b", newClient(cfg.LLM.ParticipantB, llmTimeout(cfg)), dev)
 
-	ok := true
-	report("participant-a", cfg.LLM.ParticipantA, clientA, &ok)
-	report("participant-b", cfg.LLM.ParticipantB, clientB, &ok)
+	// В режиме --dev спиннер не нужен: ход проверки виден в stderr.
+	var activity *activityReporter
+	if !dev {
+		activity = newActivityReporter(os.Stdout)
+	}
 
-	if !ok {
+	okA := healthCheck(activity, "participant-a", cfg.LLM.ParticipantA, clientA)
+	okB := healthCheck(activity, "participant-b", cfg.LLM.ParticipantB, clientB)
+
+	if !okA || !okB {
 		return fmt.Errorf("health: один или оба LLM-провайдера недоступны")
 	}
 	return nil
 }
 
-// report проверяет одного участника и печатает результат.
-func report(name string, p config.ParticipantConfig, client llm.LLM, ok *bool) {
+// healthCheck пингует участника под спиннером и печатает результат.
+func healthCheck(activity *activityReporter, name string, p config.ParticipantConfig, client llm.LLM) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
+	if activity != nil {
+		activity.set(name, "проверяется")
+		activity.start()
+	}
 	resp, err := client.Generate(ctx, pingPrompt)
+	if activity != nil {
+		activity.stopAndWait()
+	}
+
 	if err != nil {
-		*ok = false
 		fmt.Printf("%s %s: недоступен (%v)\n", name, p.Model, err)
-		return
+		return false
 	}
 	fmt.Printf("%s %s: доступен (уверенность не оценивается, ответ: %q)\n", name, p.Model, resp.Content)
+	return true
 }
 
 // intPtr возвращает указатель на int.

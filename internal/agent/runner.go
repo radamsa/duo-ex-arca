@@ -24,6 +24,7 @@ type Runner struct {
 	fastParticipant *debate.Participant
 	contextBuilder  *ctxb.Builder
 	trace           trace.Recorder
+	notify          debate.NotifyFunc
 }
 
 // RunnerConfig — конфигурация runner'а.
@@ -38,6 +39,10 @@ type RunnerConfig struct {
 
 	// Trace — рекордер событий трассировки (опционально).
 	Trace trace.Recorder
+
+	// Notify — колбэк активности для отображения прогресса
+	// (опционально; при nil не вызывается).
+	Notify debate.NotifyFunc
 }
 
 // NewRunner создаёт runner и проверяет конфигурацию.
@@ -59,6 +64,7 @@ func NewRunner(cfg RunnerConfig) (*Runner, error) {
 		fastParticipant: cfg.FastParticipant,
 		contextBuilder:  cfg.ContextBuilder,
 		trace:           cfg.Trace,
+		notify:          cfg.Notify,
 	}, nil
 }
 
@@ -111,6 +117,9 @@ func (r *Runner) runFast(ctx context.Context, task domain.Task, runID string) (d
 	r.record(runID, task.ID, trace.ContextBuilt, map[string]string{"duration_ms": strconv.FormatInt(time.Since(ctxStart).Milliseconds(), 10)})
 
 	msgs := debate.ProposalPrompt(task, ctxText)
+	if r.notify != nil {
+		r.notify(r.fastParticipant.ID, debate.StagePropose)
+	}
 	resp, err := r.fastParticipant.LLM.Generate(ctx, llm.GenerationRequest{Messages: msgs})
 	if err != nil {
 		return failedDecision(), fmt.Errorf("agent: участник %s: %w", r.fastParticipant.ID, err)

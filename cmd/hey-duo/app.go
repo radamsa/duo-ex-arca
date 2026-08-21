@@ -57,6 +57,7 @@ type app struct {
 	traces    *sqlite.TraceRepository
 	benchRepo *sqlite.BenchmarkRepository
 	cfg       config.Config
+	activity  *activityReporter
 }
 
 // buildApp собирает pipeline: клиенты -> движок -> runner -> хранилище.
@@ -81,6 +82,15 @@ func buildApp(cfg config.Config, dev bool) (*app, error) {
 	traceRepo := sqlite.NewTraceRepository(db)
 	recorder := newSQLiteRecorder(traceRepo)
 
+	// Спиннер активности не нужен в режиме --dev: там весь ход дебата
+	// и так виден в stderr.
+	var activity *activityReporter
+	var notify debate.NotifyFunc
+	if !dev {
+		activity = newActivityReporter(os.Stdout)
+		notify = activity.set
+	}
+
 	engine, err := debate.NewEngine(debate.EngineConfig{
 		ParticipantA:        participantA,
 		ParticipantB:        participantB,
@@ -89,6 +99,7 @@ func buildApp(cfg config.Config, dev bool) (*app, error) {
 		SimilarityThreshold: cfg.Debate.SimilarityThreshold,
 		MaxRounds:           modeRounds(cfg.Debate.MaxRounds),
 		Trace:               recorder,
+		Notify:              notify,
 	})
 	if err != nil {
 		return closeOnError(err)
@@ -99,18 +110,20 @@ func buildApp(cfg config.Config, dev bool) (*app, error) {
 		FastParticipant: participantA,
 		ContextBuilder:  contextBuilder,
 		Trace:           recorder,
+		Notify:          notify,
 	})
 	if err != nil {
 		return closeOnError(err)
 	}
 
 	return &app{
-		runner:  runner,
-		db:      db,
-		tasks:   sqlite.NewTaskRepository(db),
-		debates: sqlite.NewDebateRepository(db),
-		traces:  traceRepo,
-		cfg:     cfg,
+		runner:   runner,
+		db:       db,
+		tasks:    sqlite.NewTaskRepository(db),
+		debates:  sqlite.NewDebateRepository(db),
+		traces:   traceRepo,
+		cfg:      cfg,
+		activity: activity,
 	}, nil
 }
 

@@ -86,7 +86,11 @@ func runAsk(args []string, cfg config.Config, dev bool) error {
 		return err
 	}
 
+	// Спиннер активности на время прогона; останавливаем до печати
+	// результата, чтобы не смешивать вывод.
+	a.activity.start()
 	decision, debate, runErr := a.runner.Run(ctx, task)
+	a.activity.stopAndWait()
 
 	if debate != nil {
 		if err := a.debates.Save(ctx, *debate); err != nil {
