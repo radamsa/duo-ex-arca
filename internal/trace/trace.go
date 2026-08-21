@@ -30,6 +30,8 @@ const (
 	RevisionCompleted EventType = "REVISION_COMPLETED"
 	// ConsensusEvaluated — консенсус оценён.
 	ConsensusEvaluated EventType = "CONSENSUS_EVALUATED"
+	// SimilarityEvaluated — арбитры оценили смысловое совпадение решений.
+	SimilarityEvaluated EventType = "SIMILARITY_EVALUATED"
 	// DecisionCreated — итоговое решение создано.
 	DecisionCreated EventType = "DECISION_CREATED"
 )
@@ -40,7 +42,7 @@ func (t EventType) Valid() bool {
 	case TaskCreated, ContextBuilt,
 		ProposalStarted, ProposalCompleted,
 		CritiqueStarted, CritiqueCompleted,
-		RevisionCompleted, ConsensusEvaluated, DecisionCreated:
+		RevisionCompleted, ConsensusEvaluated, SimilarityEvaluated, DecisionCreated:
 		return true
 	default:
 		return false

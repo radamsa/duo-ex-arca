@@ -99,6 +99,70 @@ func TestEvaluateConsensusDifferentTexts(t *testing.T) {
 	}
 }
 
+// TestEvaluateConsensusParaphrasedDecisions — одно решение, сформулированное
+// арбитрами разными словами, даёт консенсус (design.md §14: консенсус —
+// не совпадение текстов). Пара взята из реального лога дебата.
+func TestEvaluateConsensusParaphrasedDecisions(t *testing.T) {
+	e := newConsensusEngine(t, 0.85)
+
+	v1 := debate.ConsensusVerdict{
+		Agreement: debate.AgreementConsensus,
+		Decision:  "Синее небо является результатом комбинированного эффекта рэлеевского рассеяния и рассеяния аэрозолями, с учетом поглощения света.",
+		Confidence: 1.0,
+	}
+	v2 := debate.ConsensusVerdict{
+		Agreement: debate.AgreementConsensus,
+		Decision:  "Синее небо является результатом сложного взаимодействия рэлеевского рассеяния, рассеяния аэрозолями и поглощения света.",
+		Confidence: 1.0,
+	}
+
+	decision, err := e.Evaluate(v1, v2)
+	if err != nil {
+		t.Fatalf("Evaluate вернул ошибку: %v", err)
+	}
+	if decision.Status != domain.Consensus {
+		t.Fatalf("Status = %s, ожидался CONSENSUS", decision.Status)
+	}
+	// В итог берётся более подробная формулировка.
+	if decision.Decision != v1.Decision {
+		t.Fatalf("Decision = %q, ожидался более подробный текст %q", decision.Decision, v1.Decision)
+	}
+}
+
+// TestEvaluateConsensusEquivalentAfterNormalization — формулировки,
+// совпадающие после нормализации (регистр, пунктуация, ё), дают консенсус.
+func TestEvaluateConsensusEquivalentAfterNormalization(t *testing.T) {
+	e := newConsensusEngine(t, 0.8)
+
+	v1 := debate.ConsensusVerdict{Agreement: debate.AgreementConsensus, Decision: "SQLite, с WAL-режимом!", Confidence: 0.9}
+	v2 := debate.ConsensusVerdict{Agreement: debate.AgreementConsensus, Decision: "sqlite с wal режимом", Confidence: 0.9}
+
+	decision, err := e.Evaluate(v1, v2)
+	if err != nil {
+		t.Fatalf("Evaluate вернул ошибку: %v", err)
+	}
+	if decision.Status != domain.Consensus {
+		t.Fatalf("Status = %s, ожидался CONSENSUS", decision.Status)
+	}
+}
+
+// TestEvaluateConsensusNegationIsDisagreement — «делать X» и «не делать X» —
+// разные решения, несмотря на общие слова.
+func TestEvaluateConsensusNegationIsDisagreement(t *testing.T) {
+	e := newConsensusEngine(t, 0.8)
+
+	v1 := debate.ConsensusVerdict{Agreement: debate.AgreementConsensus, Decision: "Использовать кэш в памяти", Confidence: 0.9}
+	v2 := debate.ConsensusVerdict{Agreement: debate.AgreementConsensus, Decision: "Не использовать кэш", Confidence: 0.9}
+
+	decision, err := e.Evaluate(v1, v2)
+	if err != nil {
+		t.Fatalf("Evaluate вернул ошибку: %v", err)
+	}
+	if decision.Status != domain.Disagreement {
+		t.Fatalf("Status = %s, ожидался DISAGREEMENT", decision.Status)
+	}
+}
+
 // TestEvaluateMixedVerdicts — один консенсус, другой нет — разногласие.
 func TestEvaluateMixedVerdicts(t *testing.T) {
 	e := newConsensusEngine(t, 0.8)

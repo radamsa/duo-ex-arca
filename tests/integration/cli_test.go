@@ -114,17 +114,52 @@ func classifyPhase(system string) phase {
 	}
 }
 
-// okPhaseResponse — корректный ответ для фазы.
+// okPhaseResponse — корректный ответ для фазы (текстовый протокол).
 func okPhaseResponse(p phase) string {
 	switch p {
 	case phaseProposal:
-		return `{"decision":"Использовать SQLite","arguments":["чистый Go"],"assumptions":["лицензия совместима"],"risks":["производительность"],"confidence":0.9}`
+		return `РЕШЕНИЕ: Использовать SQLite
+АРГУМЕНТЫ:
+- чистый Go
+ДОПУЩЕНИЯ:
+- лицензия совместима
+РИСКИ:
+- производительность
+УВЕРЕННОСТЬ: 0.9`
 	case phaseCritique:
-		return `{"valid_points":["чистый Go"],"errors":["нужны миграции"],"missing_information":["объём данных"],"risks":["блокировки"],"counter_arguments":["конкурентная запись"],"proposed_changes":["миграции"]}`
+		return `ВЕРНЫЕ УТВЕРЖДЕНИЯ:
+- чистый Go
+ОШИБКИ:
+- нужны миграции
+НЕ ХВАТАЕТ ИНФОРМАЦИИ:
+- объём данных
+РИСКИ:
+- блокировки
+КОНТРАРГУМЕНТЫ:
+- конкурентная запись
+ПРЕДЛАГАЕМЫЕ ИЗМЕНЕНИЯ:
+- миграции`
 	case phaseRevision:
-		return `{"decision":"Использовать SQLite","arguments":["чистый Go","миграции"],"assumptions":["лицензия совместима"],"risks":["блокировки"],"confidence":0.9}`
+		return `РЕШЕНИЕ: Использовать SQLite
+АРГУМЕНТЫ:
+- чистый Go
+- миграции
+ДОПУЩЕНИЯ:
+- лицензия совместима
+РИСКИ:
+- блокировки
+УВЕРЕННОСТЬ: 0.9`
 	default:
-		return `{"agreement":"CONSENSUS","decision":"Использовать SQLite","requirements":["чистый Go"],"arguments":["миграции"],"risks":["блокировки"],"confidence":0.9,"reasoning":"согласны"}`
+		return `СОГЛАСИЕ: CONSENSUS
+РЕШЕНИЕ: Использовать SQLite
+ТРЕБОВАНИЯ:
+- чистый Go
+АРГУМЕНТЫ:
+- миграции
+РИСКИ:
+- блокировки
+УВЕРЕННОСТЬ: 0.9
+ОБОСНОВАНИЕ: согласны`
 	}
 }
 
@@ -215,6 +250,33 @@ func TestCLIAskFast(t *testing.T) {
 	}
 	if result.Mode != "FAST" {
 		t.Fatalf("mode = %s, ожидался FAST", result.Mode)
+	}
+}
+
+// TestCLIDevMode — флаг --dev выводит полные ответы моделей в stderr.
+func TestCLIDevMode(t *testing.T) {
+	urlA, urlB := startLLMPair(t, func(p phase) (int, string) {
+		return http.StatusOK, okPhaseResponse(p)
+	})
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "arca.yaml")
+	writeConfig(t, cfgPath, urlA, urlB)
+
+	out, code := runCLI(t, "ask", "--config", cfgPath, "--mode", "normal", "--dev", "--json", "Какую базу использовать?")
+	if code != 0 {
+		t.Fatalf("exit=%d, вывод: %s", code, out)
+	}
+
+	for _, want := range []string{
+		"participant-a: запрос",
+		"participant-b: запрос",
+		"participant-a: ответ",
+		"Использовать SQLite", // содержимое ответа mock-модели
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("вывод --dev не содержит %q:\n%s", want, out)
+		}
 	}
 }
 
@@ -312,10 +374,10 @@ func TestCLIAskHTTP500(t *testing.T) {
 	}
 }
 
-// TestCLIAskInvalidJSON — невалидный JSON ответа: решение FAILED, не consensus.
+// TestCLIAskInvalidJSON — пустой ответ модели: решение FAILED, не consensus.
 func TestCLIAskInvalidJSON(t *testing.T) {
 	urlA, urlB := startLLMPair(t, func(p phase) (int, string) {
-		return http.StatusOK, `это не JSON`
+		return http.StatusOK, ""
 	})
 
 	dir := t.TempDir()
@@ -324,10 +386,10 @@ func TestCLIAskInvalidJSON(t *testing.T) {
 
 	out, code := runCLI(t, "ask", "--config", cfgPath, "--mode", "normal", "--json", "Какая база лучше?")
 	if code == 0 {
-		t.Fatalf("ожидался ненулевой exit при невалидном JSON, вывод: %s", out)
+		t.Fatalf("ожидался ненулевой exit при пустом ответе модели, вывод: %s", out)
 	}
 	if strings.Contains(out, "CONSENSUS") {
-		t.Fatalf("ложный консенсус при невалидном JSON: %s", out)
+		t.Fatalf("ложный консенсус при пустом ответе модели: %s", out)
 	}
 }
 
@@ -336,7 +398,7 @@ func TestCLIAskInvalidJSON(t *testing.T) {
 func TestCLIDisagreement(t *testing.T) {
 	urlA, urlB := startLLMPair(t, func(p phase) (int, string) {
 		if p == phaseConsensus {
-			return http.StatusOK, `{"agreement":"DISAGREEMENT","decision":"","requirements":[],"arguments":[],"risks":[],"confidence":0.5,"reasoning":"модели не согласны"}`
+			return http.StatusOK, "СОГЛАСИЕ: DISAGREEMENT\nУВЕРЕННОСТЬ: 0.5\nОБОСНОВАНИЕ: модели не согласны"
 		}
 		return http.StatusOK, okPhaseResponse(p)
 	})

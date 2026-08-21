@@ -52,6 +52,10 @@ type DebateConfig struct {
 
 	// ConsensusThreshold — порог уверенности консенсуса [0,1].
 	ConsensusThreshold float64 `yaml:"consensus_threshold"`
+
+	// SimilarityThreshold — порог смыслового совпадения решений при
+	// проверке консенсуса арбитрами [0,1]. 0 означает значение по умолчанию.
+	SimilarityThreshold float64 `yaml:"similarity_threshold"`
 }
 
 // StorageConfig — настройки хранилища.
@@ -101,6 +105,9 @@ func (c Config) Validate() error {
 	if c.Debate.ConsensusThreshold < 0 || c.Debate.ConsensusThreshold > 1 {
 		return fmt.Errorf("config: consensus_threshold %v вне диапазона [0,1]", c.Debate.ConsensusThreshold)
 	}
+	if c.Debate.SimilarityThreshold < 0 || c.Debate.SimilarityThreshold > 1 {
+		return fmt.Errorf("config: similarity_threshold %v вне диапазона [0,1]", c.Debate.SimilarityThreshold)
+	}
 	if c.Storage.Type != "sqlite" {
 		return fmt.Errorf("config: поддерживается только storage.type=sqlite, получено %q", c.Storage.Type)
 	}
@@ -135,6 +142,7 @@ func Default() Config {
 				"critical":   6,
 			},
 			ConsensusThreshold: 0.85,
+			SimilarityThreshold: 0.85,
 		},
 		Storage: StorageConfig{
 			Type: "sqlite",

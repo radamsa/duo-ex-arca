@@ -1,38 +1,17 @@
 // Пакет debate — протокол и движок дебата двух LLM.
 //
 // Prompt builders (TASK-030..033) формируют системный и пользовательский
-// промпты, а protocol.go описывает JSON-контракт ответов LLM:
-// Proposal, Critique, ConsensusVerdict (docs/plan-mvp.md, TASK-030..033).
+// промпты. Протокол ответов LLM — размеченный текст с секциями;
+// разбор в доменные структуры выполняет textparse.go.
 package debate
 
 import (
-	"encoding/json"
 	"fmt"
-	"math"
 	"strings"
 
 	"github.com/radamsa/duo-ex-arca/internal/domain"
 	"github.com/radamsa/duo-ex-arca/internal/llm"
 )
-
-// proposalJSON — wire-формат предложения (он же schema в промпте).
-type proposalJSON struct {
-	Decision    string   `json:"decision"`
-	Arguments   []string `json:"arguments"`
-	Assumptions []string `json:"assumptions"`
-	Risks       []string `json:"risks"`
-	Confidence  float64  `json:"confidence"`
-}
-
-// critiqueJSON — wire-формат критики (TASK-031).
-type critiqueJSON struct {
-	ValidPoints        []string `json:"valid_points"`
-	Errors             []string `json:"errors"`
-	MissingInformation []string `json:"missing_information"`
-	Risks              []string `json:"risks"`
-	CounterArguments   []string `json:"counter_arguments"`
-	ProposedChanges    []string `json:"proposed_changes"`
-}
 
 // Agreement — результат оценки консенсуса LLM-ом.
 type Agreement string
@@ -67,8 +46,51 @@ type ConsensusVerdict struct {
 	Reasoning      string   `json:"reasoning"`
 }
 
-// systemJSONRule — общее требование выдавать только JSON.
-const systemJSONRule = "Отвечай ТОЛЬКО валидным JSON без комментариев, markdown-разметки и пояснений."
+// systemTextRule — общее требование к формату ответа.
+const systemTextRule = "Строго придерживайся формата: ЗАГОЛОВОК: значение; элементы списков — с новой строки через дефис. Без markdown-разметки и комментариев вне формата."
+
+// proposalFormat — формат ответа для предложения и пересмотра.
+const proposalFormat = `Формат ответа:
+РЕШЕНИЕ: <решение одной строкой>
+АРГУМЕНТЫ:
+- <аргумент>
+ДОПУЩЕНИЯ:
+- <допущение>
+РИСКИ:
+- <риск>
+УВЕРЕННОСТЬ: <число от 0.0 до 1.0>
+
+Пустые разделы можно не писать.`
+
+// critiqueFormat — формат ответа для критики.
+const critiqueFormat = `Формат ответа:
+ВЕРНЫЕ УТВЕРЖДЕНИЯ:
+- <верное утверждение оппонента>
+ОШИБКИ:
+- <ошибка>
+НЕ ХВАТАЕТ ИНФОРМАЦИИ:
+- <какой информации не хватает>
+РИСКИ:
+- <риск>
+КОНТРАРГУМЕНТЫ:
+- <контраргумент>
+ПРЕДЛАГАЕМЫЕ ИЗМЕНЕНИЯ:
+- <предлагаемое изменение>
+
+Пустые разделы можно не писать.`
+
+// consensusFormat — формат ответа арбитра.
+const consensusFormat = `Формат ответа:
+СОГЛАСИЕ: <CONSENSUS | DISAGREEMENT | INSUFFICIENT_DATA>
+РЕШЕНИЕ: <главное решение одной короткой фразой (до 10 слов), без обоснований>
+ТРЕБОВАНИЯ:
+- <ключевое требование>
+АРГУМЕНТЫ:
+- <существенный аргумент>
+РИСКИ:
+- <критический риск>
+УВЕРЕННОСТЬ: <число от 0.0 до 1.0>
+ОБОСНОВАНИЕ: <краткое обоснование одной строкой>`
 
 // ProposalPrompt формирует промпт для независимого предложения (TASK-030).
 //
@@ -77,13 +99,8 @@ const systemJSONRule = "Отвечай ТОЛЬКО валидным JSON без
 func ProposalPrompt(task domain.Task, contextText string) []llm.Message {
 	system := strings.Join([]string{
 		"Ты — участник дебата двух LLM. Предложи решение задачи.",
-		"Верни JSON со следующими полями:",
-		`"decision" — решение (строка),`,
-		`"arguments" — аргументы в пользу решения (массив строк),`,
-		`"assumptions" — допущения (массив строк),`,
-		`"risks" — риски (массив строк),`,
-		`"confidence" — уверенность от 0.0 до 1.0 (число).`,
-		systemJSONRule,
+		proposalFormat,
+		systemTextRule,
 	}, "\n")
 
 	user := strings.Join([]string{
@@ -104,14 +121,8 @@ func CritiquePrompt(task domain.Task, target domain.Proposal, contextText string
 	system := strings.Join([]string{
 		"Ты — участник дебата двух LLM. Критически оцени предложение оппонента.",
 		"Найди причины, по которым это решение может быть ошибочным или неполным.",
-		"Верни JSON со следующими полями:",
-		`"valid_points" — верные утверждения оппонента (массив строк),`,
-		`"errors" — ошибки (массив строк),`,
-		`"missing_information" — недостающая информация (массив строк),`,
-		`"risks" — риски (массив строк),`,
-		`"counter_arguments" — контраргументы (массив строк),`,
-		`"proposed_changes" — предлагаемые изменения (массив строк).`,
-		systemJSONRule,
+		critiqueFormat,
+		systemTextRule,
 	}, "\n")
 
 	var args []string
@@ -145,9 +156,8 @@ func RevisionPrompt(task domain.Task, own domain.Proposal, critique domain.Criti
 	system := strings.Join([]string{
 		"Ты — участник дебата двух LLM. Пересмотри СВОЁ предложение с учётом критики.",
 		"Учти обоснованные замечания критики, но не отказывайся от решения без причины.",
-		"Верни JSON в том же формате, что и исходное предложение:",
-		`"decision", "arguments", "assumptions", "risks", "confidence".`,
-		systemJSONRule,
+		proposalFormat,
+		systemTextRule,
 	}, "\n")
 
 	var critiqueLines []string
@@ -178,21 +188,34 @@ func RevisionPrompt(task domain.Task, own domain.Proposal, critique domain.Criti
 	}
 }
 
+// SimilarityPrompt формирует промпт проверки смыслового совпадения
+// двух формулировок решения. Арбитр отвечает одним числом 0..1.
+func SimilarityPrompt(decisionA, decisionB string) []llm.Message {
+	system := strings.Join([]string{
+		"Ты — арбитр дебата двух LLM. Оцени смысловое совпадение двух решений.",
+		"Совпадение по смыслу означает одно и то же решение задачи, даже если формулировки различаются словами. Разные по сути решения (в том числе отличающиеся отрицанием) имеют низкий коэффициент.",
+		"Ответь ТОЛЬКО одним числом от 0.0 до 1.0 — коэффициентом совпадения. Без слов, пояснений и других символов.",
+	}, "\n")
+
+	user := strings.Join([]string{
+		"Решение 1: " + decisionA,
+		"Решение 2: " + decisionB,
+	}, "\n")
+
+	return []llm.Message{
+		{Role: llm.RoleSystem, Content: system},
+		{Role: llm.RoleUser, Content: user},
+	}
+}
+
 // ConsensusPrompt формирует промпт для оценки консенсуса (TASK-033).
 func ConsensusPrompt(proposalA, proposalB, revisionA, revisionB domain.Proposal, requirements []string) []llm.Message {
 	system := strings.Join([]string{
 		"Ты — арбитр дебата двух LLM. Оцени, достигли ли участники консенсуса.",
 		"Консенсус — это согласие по решению, ключевым требованиям, существенным аргументам и критическим рискам, а НЕ совпадение текстов.",
-		"Верни JSON со следующими полями:",
-		`"agreement" — одна из строк: "CONSENSUS", "DISAGREEMENT" или "INSUFFICIENT_DATA" (если обеим сторонам не хватает данных),`,
-		`"decision" — согласованное решение (строка),`,
-		`"requirements" — ключевые требования (массив строк),`,
-		`"arguments" — существенные аргументы (массив строк),`,
-		`"risks" — критические риски (массив строк),`,
-		`"confidence" — уверенность в оценке от 0.0 до 1.0 (число),`,
-		`"reasoning" — краткое обоснование (строка).`,
-		"Не выбирай победителя искусственно: если согласия нет, верни DISAGREEMENT.",
-		systemJSONRule,
+		consensusFormat,
+		"Не выбирай победителя искусственно: если согласия нет, укажи DISAGREEMENT; если обеим сторонам не хватает данных — INSUFFICIENT_DATA.",
+		systemTextRule,
 	}, "\n")
 
 	formatProposal := func(label string, p domain.Proposal) string {
@@ -217,143 +240,4 @@ func ConsensusPrompt(proposalA, proposalB, revisionA, revisionB domain.Proposal,
 		{Role: llm.RoleSystem, Content: system},
 		{Role: llm.RoleUser, Content: user},
 	}
-}
-
-// ---------------------------------------------------------------------------
-// Разбор JSON-ответов LLM (протокол)
-
-// extractJSON извлекает JSON-объект из ответа LLM: модели часто добавляют
-// пояснения вокруг JSON или оборачивают его в markdown-блоки.
-// Ищем первый '{' и последний '}' — всё остальное отбрасываем.
-func extractJSON(raw string) ([]byte, error) {
-	start := strings.IndexByte(raw, '{')
-	end := strings.LastIndexByte(raw, '}')
-	if start < 0 || end < start {
-		return nil, fmt.Errorf("в ответе не найден JSON-объект")
-	}
-	return []byte(raw[start : end+1]), nil
-}
-
-// deescapeJSON снимает двойное экранирование, которым некоторые модели
-// оборачивают JSON: {\"decision\":\"A\"} -> {"decision":"A"}.
-func deescapeJSON(body []byte) []byte {
-	var out []byte
-	for i := 0; i < len(body); i++ {
-		if body[i] == '\\' && i+1 < len(body) && (body[i+1] == '"' || body[i+1] == '\\' || body[i+1] == '{' || body[i+1] == '}') {
-			out = append(out, body[i+1])
-			i++
-			continue
-		}
-		out = append(out, body[i])
-	}
-	return out
-}
-
-// unmarshalJSON разбирает body; при неудаче снимает двойное экранирование
-// кавычек и пробует ещё раз.
-func unmarshalJSON(body []byte, dst any) error {
-	if err := json.Unmarshal(body, dst); err == nil {
-		return nil
-	}
-	return json.Unmarshal(deescapeJSON(body), dst)
-}
-
-// ParseProposal разбирает JSON-ответ LLM в доменную структуру Proposal.
-// ID и ParticipantID проставляет движок — модель их не возвращает.
-func ParseProposal(raw string) (domain.Proposal, error) {
-	var parsed proposalJSON
-	body, err := extractJSON(raw)
-	if err != nil {
-		return domain.Proposal{}, fmt.Errorf("debate: невалидный JSON предложения: %w", err)
-	}
-	if err := unmarshalJSON(body, &parsed); err != nil {
-		return domain.Proposal{}, fmt.Errorf("debate: невалидный JSON предложения: %w", err)
-	}
-	if strings.TrimSpace(parsed.Decision) == "" {
-		return domain.Proposal{}, fmt.Errorf("debate: предложение не содержит решения")
-	}
-	if math.IsNaN(parsed.Confidence) || parsed.Confidence < 0 || parsed.Confidence > 1 {
-		return domain.Proposal{}, fmt.Errorf("debate: уверенность %v вне диапазона [0,1]", parsed.Confidence)
-	}
-	return domain.Proposal{
-		Decision:    parsed.Decision,
-		Arguments:   parsed.Arguments,
-		Assumptions: parsed.Assumptions,
-		Risks:       parsed.Risks,
-		Confidence:  parsed.Confidence,
-	}, nil
-}
-
-// ParseCritique разбирает JSON-ответ LLM в доменную структуру Critique.
-func ParseCritique(raw string) (domain.Critique, error) {
-	var parsed critiqueJSON
-	body, err := extractJSON(raw)
-	if err != nil {
-		return domain.Critique{}, fmt.Errorf("debate: невалидный JSON критики: %w", err)
-	}
-	if err := unmarshalJSON(body, &parsed); err != nil {
-		return domain.Critique{}, fmt.Errorf("debate: невалидный JSON критики: %w", err)
-	}
-	c := domain.Critique{
-		ValidPoints:        parsed.ValidPoints,
-		Errors:             parsed.Errors,
-		MissingInformation: parsed.MissingInformation,
-		Risks:              parsed.Risks,
-		CounterArguments:   parsed.CounterArguments,
-		ProposedChanges:    parsed.ProposedChanges,
-	}
-	if !c.HasContent() {
-		return domain.Critique{}, fmt.Errorf("debate: критика пуста")
-	}
-	return c, nil
-}
-
-// ParseConsensusVerdict разбирает JSON-ответ арбитра.
-func ParseConsensusVerdict(raw string) (ConsensusVerdict, error) {
-	var parsed ConsensusVerdict
-	body, err := extractJSON(raw)
-	if err != nil {
-		return ConsensusVerdict{}, fmt.Errorf("debate: невалидный JSON вердикта: %w", err)
-	}
-	if err := unmarshalJSON(body, &parsed); err != nil {
-		return ConsensusVerdict{}, fmt.Errorf("debate: невалидный JSON вердикта: %w", err)
-	}
-	if !parsed.Agreement.Valid() {
-		return ConsensusVerdict{}, fmt.Errorf("debate: неизвестное значение agreement %q", parsed.Agreement)
-	}
-	if math.IsNaN(parsed.Confidence) || parsed.Confidence < 0 || parsed.Confidence > 1 {
-		return ConsensusVerdict{}, fmt.Errorf("debate: уверенность %v вне диапазона [0,1]", parsed.Confidence)
-	}
-	return parsed, nil
-}
-
-// ProposalToJSON сериализует предложение в wire-формат (для тестов и trace).
-func ProposalToJSON(p domain.Proposal) string {
-	data, err := json.Marshal(proposalJSON{
-		Decision:    p.Decision,
-		Arguments:   p.Arguments,
-		Assumptions: p.Assumptions,
-		Risks:       p.Risks,
-		Confidence:  p.Confidence,
-	})
-	if err != nil {
-		return "{}"
-	}
-	return string(data)
-}
-
-// CritiqueToJSON сериализует критику в wire-формат.
-func CritiqueToJSON(c domain.Critique) string {
-	data, err := json.Marshal(critiqueJSON{
-		ValidPoints:        c.ValidPoints,
-		Errors:             c.Errors,
-		MissingInformation: c.MissingInformation,
-		Risks:              c.Risks,
-		CounterArguments:   c.CounterArguments,
-		ProposedChanges:    c.ProposedChanges,
-	})
-	if err != nil {
-		return "{}"
-	}
-	return string(data)
 }

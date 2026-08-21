@@ -73,7 +73,7 @@ func parseBenchFlags(args []string) (benchFlags, error) {
 }
 
 // runBench выполняет подкоманду bench.
-func runBench(args []string, cfg config.Config) error {
+func runBench(args []string, cfg config.Config, dev bool) error {
 	flags, err := parseBenchFlags(args)
 	if err != nil {
 		return err
@@ -101,7 +101,7 @@ func runBench(args []string, cfg config.Config) error {
 
 	// Инструментированный pipeline: токены собираются обёрткой вокруг LLM.
 	counter := bench.NewTokenCounter()
-	a, err := buildBenchApp(cfg, counter)
+	a, err := buildBenchApp(cfg, counter, dev)
 	if err != nil {
 		return err
 	}
@@ -172,14 +172,14 @@ func truncateText(s string, max int) string {
 }
 
 // buildBenchApp собирает pipeline с подсчётом токенов (TASK-153).
-func buildBenchApp(cfg config.Config, counter *bench.TokenCounter) (*app, error) {
+func buildBenchApp(cfg config.Config, counter *bench.TokenCounter, dev bool) (*app, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 
 	contextBuilder := ctxb.New()
-	participantA := debate.NewParticipant("participant-a", bench.Instrument(newClient(cfg.LLM.ParticipantA, llmTimeout(cfg)), counter))
-	participantB := debate.NewParticipant("participant-b", bench.Instrument(newClient(cfg.LLM.ParticipantB, llmTimeout(cfg)), counter))
+	participantA := debate.NewParticipant("participant-a", bench.Instrument(maybeDebug("participant-a", newClient(cfg.LLM.ParticipantA, llmTimeout(cfg)), dev), counter))
+	participantB := debate.NewParticipant("participant-b", bench.Instrument(maybeDebug("participant-b", newClient(cfg.LLM.ParticipantB, llmTimeout(cfg)), dev), counter))
 
 	db, err := sqlite.Open(cfg.Storage.Path)
 	if err != nil {
@@ -194,12 +194,13 @@ func buildBenchApp(cfg config.Config, counter *bench.TokenCounter) (*app, error)
 	recorder := newSQLiteRecorder(traceRepo)
 
 	engine, err := debate.NewEngine(debate.EngineConfig{
-		ParticipantA:       participantA,
-		ParticipantB:       participantB,
-		ContextBuilder:     contextBuilder,
-		ConsensusThreshold: cfg.Debate.ConsensusThreshold,
-		MaxRounds:          modeRounds(cfg.Debate.MaxRounds),
-		Trace:              recorder,
+		ParticipantA:        participantA,
+		ParticipantB:        participantB,
+		ContextBuilder:      contextBuilder,
+		ConsensusThreshold:  cfg.Debate.ConsensusThreshold,
+		SimilarityThreshold: cfg.Debate.SimilarityThreshold,
+		MaxRounds:           modeRounds(cfg.Debate.MaxRounds),
+		Trace:               recorder,
 	})
 	if err != nil {
 		return closeOnError(err)

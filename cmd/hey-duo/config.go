@@ -22,6 +22,11 @@ func runConfigView(_ []string, cfg config.Config) error {
 
 	fmt.Printf("Режим по умолчанию: %s\n", cfg.Debate.DefaultMode)
 	fmt.Printf("Порог консенсуса:   %.2f\n", cfg.Debate.ConsensusThreshold)
+	simThreshold := cfg.Debate.SimilarityThreshold
+	if simThreshold == 0 {
+		simThreshold = config.Default().Debate.SimilarityThreshold
+	}
+	fmt.Printf("Порог совпадения:   %.2f\n", simThreshold)
 	fmt.Printf("Лимиты раундов:     ")
 	for _, name := range []string{"normal", "deliberate", "critical"} {
 		n := cfg.Debate.MaxRounds[name]

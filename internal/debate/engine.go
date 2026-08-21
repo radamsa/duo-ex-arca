@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	ctxb "github.com/radamsa/duo-ex-arca/internal/context"
 	"github.com/radamsa/duo-ex-arca/internal/domain"
@@ -33,6 +35,7 @@ type Engine struct {
 	contextBuilder *ctxb.Builder
 	consensus      *ConsensusEngine
 	maxRounds      map[domain.TaskMode]int
+	similarityThreshold float64
 	trace          trace.Recorder
 }
 
@@ -45,6 +48,12 @@ type EngineConfig struct {
 
 	// ConsensusThreshold — порог уверенности консенсуса (0,1].
 	ConsensusThreshold float64
+
+	// SimilarityThreshold — порог смыслового совпадения решений при
+	// проверке консенсуса арбитрами [0,1]. Консенсус подтверждается,
+	// только если ОБА арбитра вернули коэффициент не ниже порога.
+	// 0 означает значение по умолчанию (defaultSimilarityThreshold).
+	SimilarityThreshold float64
 
 	// MaxRounds — лимит раундов по режимам (кроме FAST,
 	// который движок не обслуживает).
@@ -75,6 +84,13 @@ func NewEngine(cfg EngineConfig) (*Engine, error) {
 		return nil, err
 	}
 
+	if cfg.SimilarityThreshold < 0 || cfg.SimilarityThreshold > 1 {
+		return nil, fmt.Errorf("debate: порог совпадения %v вне диапазона [0,1]", cfg.SimilarityThreshold)
+	}
+	if cfg.SimilarityThreshold == 0 {
+		cfg.SimilarityThreshold = defaultSimilarityThreshold
+	}
+
 	if cfg.MaxRounds == nil {
 		return nil, fmt.Errorf("debate: не заданы лимиты раундов MaxRounds")
 	}
@@ -85,14 +101,19 @@ func NewEngine(cfg EngineConfig) (*Engine, error) {
 	}
 
 	return &Engine{
-		participantA:   cfg.ParticipantA,
-		participantB:   cfg.ParticipantB,
-		contextBuilder: cfg.ContextBuilder,
-		consensus:      consensus,
-		maxRounds:      cfg.MaxRounds,
-		trace:          cfg.Trace,
+		participantA:        cfg.ParticipantA,
+		participantB:        cfg.ParticipantB,
+		contextBuilder:      cfg.ContextBuilder,
+		consensus:           consensus,
+		maxRounds:           cfg.MaxRounds,
+		similarityThreshold: cfg.SimilarityThreshold,
+		trace:               cfg.Trace,
 	}, nil
 }
+
+// defaultSimilarityThreshold — порог смыслового совпадения по умолчанию,
+// если в конфигурации не задано иное.
+const defaultSimilarityThreshold = 0.85
 
 // Deliberate проводит дебат по задаче и возвращает дебат с решением.
 // runID — идентификатор запуска для событий трассировки.
@@ -136,7 +157,7 @@ func (e *Engine) Deliberate(ctx context.Context, task domain.Task, runID string)
 			return domain.Debate{}, err
 		}
 
-		decision, err := e.consensus.Evaluate(verdictA, verdictB)
+		decision, err := e.resolveDecision(ctx, task, runID, verdictA, verdictB)
 		if err != nil {
 			return domain.Debate{}, err
 		}
@@ -272,6 +293,76 @@ func (e *Engine) evaluateConsensusParallel(ctx context.Context, task domain.Task
 
 	return runBoth(ctx, func() (ConsensusVerdict, error) { return evaluate(e.participantA) },
 		func() (ConsensusVerdict, error) { return evaluate(e.participantB) })
+}
+
+// resolveDecision сводит два вердикта арбитров к итоговому решению.
+//
+// Если оба арбитра объявили консенсус, но их формулировки решения
+// расходятся лексически, арбитрам показывают обе формулировки и просят
+// оценить смысловое совпадение одним числом 0..1 (design.md §14:
+// консенсус — согласие по решению, а не совпадение текстов).
+// Консенсус подтверждается, только если ОБА коэффициента не ниже
+// порога SimilarityThreshold; иначе это ложный консенсус.
+func (e *Engine) resolveDecision(ctx context.Context, task domain.Task, runID string, v1, v2 ConsensusVerdict) (domain.Decision, error) {
+	if v1.Agreement != AgreementConsensus || v2.Agreement != AgreementConsensus {
+		return e.consensus.Evaluate(v1, v2)
+	}
+
+	d1 := strings.TrimSpace(v1.Decision)
+	d2 := strings.TrimSpace(v2.Decision)
+	if d1 == "" || d2 == "" || sameDecision(d1, d2) {
+		return e.consensus.Evaluate(v1, v2)
+	}
+
+	checkStart := time.Now()
+	simA, simB, err := e.checkSemanticMatchParallel(ctx, d1, d2)
+	if err != nil {
+		return domain.Decision{}, err
+	}
+	e.record(runID, task.ID, trace.SimilarityEvaluated, "",
+		time.Since(checkStart), map[string]string{
+			"participant_a": strconv.FormatFloat(simA, 'f', 2, 64),
+			"participant_b": strconv.FormatFloat(simB, 'f', 2, 64),
+			"threshold":     strconv.FormatFloat(e.similarityThreshold, 'f', 2, 64),
+		})
+
+	if simA < e.similarityThreshold || simB < e.similarityThreshold {
+		// Арбитры не подтвердили совпадение — ложный консенсус,
+		// искусственный выбор победителя запрещён (инвариант I6).
+		return domain.NewDecision(domain.Disagreement, "", minConfidence(v1, v2))
+	}
+
+	// Совпадение подтверждено: унифицируем текст решения (берём более
+	// подробную формулировку), чтобы ConsensusEngine сравнивал одинаковые строки.
+	if utf8.RuneCountInString(d2) > utf8.RuneCountInString(d1) {
+		v1.Decision = d2
+	} else {
+		v2.Decision = d1
+	}
+	return e.consensus.Evaluate(v1, v2)
+}
+
+// checkSemanticMatchParallel опрашивает обоих участников-арбитров о
+// смысловом совпадении двух формулировок решения. Каждый арбитр отвечает
+// одним числом от 0 до 1.
+func (e *Engine) checkSemanticMatchParallel(ctx context.Context, d1, d2 string) (float64, float64, error) {
+	msgs := SimilarityPrompt(d1, d2)
+
+	check := func(p *Participant) (float64, error) {
+		resp, err := p.LLM.Generate(ctx, llm.GenerationRequest{Messages: msgs})
+		if err != nil {
+			return 0, fmt.Errorf("debate: участник %s (similarity): %w", p.ID, err)
+		}
+		sim, err := ParseSimilarity(resp.Content)
+		if err != nil {
+			return 0, fmt.Errorf("debate: участник %s (similarity): %w", p.ID, err)
+		}
+		return sim, nil
+	}
+
+	return runBoth(ctx,
+		func() (float64, error) { return check(e.participantA) },
+		func() (float64, error) { return check(e.participantB) })
 }
 
 // proposePair запускает независимые предложения параллельно.

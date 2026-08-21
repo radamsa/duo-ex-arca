@@ -20,13 +20,13 @@ var pingPrompt = llm.GenerationRequest{
 
 // runHealth проверяет доступность обоих участников и возвращает ошибку,
 // если хотя бы один недоступен.
-func runHealth(_ []string, cfg config.Config) error {
+func runHealth(_ []string, cfg config.Config, dev bool) error {
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
 
-	clientA := newClient(cfg.LLM.ParticipantA, llmTimeout(cfg))
-	clientB := newClient(cfg.LLM.ParticipantB, llmTimeout(cfg))
+	clientA := maybeDebug("participant-a", newClient(cfg.LLM.ParticipantA, llmTimeout(cfg)), dev)
+	clientB := maybeDebug("participant-b", newClient(cfg.LLM.ParticipantB, llmTimeout(cfg)), dev)
 
 	ok := true
 	report("participant-a", cfg.LLM.ParticipantA, clientA, &ok)
@@ -39,7 +39,7 @@ func runHealth(_ []string, cfg config.Config) error {
 }
 
 // report проверяет одного участника и печатает результат.
-func report(name string, p config.ParticipantConfig, client *llm.Client, ok *bool) {
+func report(name string, p config.ParticipantConfig, client llm.LLM, ok *bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 

@@ -21,11 +21,12 @@ import (
 type phase string
 
 const (
-	phaseProposal  phase = "proposal"
-	phaseCritique  phase = "critique"
-	phaseRevision  phase = "revision"
-	phaseConsensus phase = "consensus"
-	phasePing      phase = "ping"
+	phaseProposal   phase = "proposal"
+	phaseCritique   phase = "critique"
+	phaseRevision   phase = "revision"
+	phaseConsensus  phase = "consensus"
+	phaseSimilarity phase = "similarity"
+	phasePing       phase = "ping"
 )
 
 // chatRequest — достаточная часть тела запроса Chat Completions.
@@ -68,25 +69,68 @@ func main() {
 	http.ListenAndServe("127.0.0.1:"+port, nil)
 }
 
-// respondFor формирует JSON-ответ по системному промпту.
+// respondFor формирует текстовый ответ по системному промпту.
 func respondFor(system string) string {
 	switch classify(system) {
 	case phaseProposal:
-		return `{"decision":"Использовать SQLite","arguments":["чистый Go","без C toolchain"],"assumptions":["есть вендор"],"risks":["производительность"],"confidence":0.9}`
+		return `РЕШЕНИЕ: Использовать SQLite
+АРГУМЕНТЫ:
+- чистый Go
+- без C toolchain
+ДОПУЩЕНИЯ:
+- есть вендор
+РИСКИ:
+- производительность
+УВЕРЕННОСТЬ: 0.9`
 	case phaseCritique:
-		return `{"valid_points":["чистый Go"],"errors":["нет миграций"],"missing_information":["объём данных"],"risks":["блокировки"],"counter_arguments":["SQLite не для конкурентной записи"],"proposed_changes":["добавить миграции"]}`
+		return `ВЕРНЫЕ УТВЕРЖДЕНИЯ:
+- чистый Go
+ОШИБКИ:
+- нет миграций
+НЕ ХВАТАЕТ ИНФОРМАЦИИ:
+- объём данных
+РИСКИ:
+- блокировки
+КОНТРАРГУМЕНТЫ:
+- SQLite не для конкурентной записи
+ПРЕДЛАГАЕМЫЕ ИЗМЕНЕНИЯ:
+- добавить миграции`
 	case phaseRevision:
-		return `{"decision":"Использовать SQLite","arguments":["чистый Go","без C toolchain","миграции добавлены"],"assumptions":["есть вендор"],"risks":["блокировки"],"confidence":0.9}`
+		return `РЕШЕНИЕ: Использовать SQLite
+АРГУМЕНТЫ:
+- чистый Go
+- без C toolchain
+- миграции добавлены
+ДОПУЩЕНИЯ:
+- есть вендор
+РИСКИ:
+- блокировки
+УВЕРЕННОСТЬ: 0.9`
 	case phaseConsensus:
-		return `{"agreement":"CONSENSUS","decision":"Использовать SQLite","requirements":["чистый Go","без C toolchain"],"arguments":["нативная интеграция","миграции"],"risks":["блокировки при конкурентной записи"],"confidence":0.9,"reasoning":"модели согласны по решению"}`
+		return `СОГЛАСИЕ: CONSENSUS
+РЕШЕНИЕ: Использовать SQLite
+ТРЕБОВАНИЯ:
+- чистый Go
+- без C toolchain
+АРГУМЕНТЫ:
+- нативная интеграция
+- миграции
+РИСКИ:
+- блокировки при конкурентной записи
+УВЕРЕННОСТЬ: 0.9
+ОБОСНОВАНИЕ: модели согласны по решению`
+	case phaseSimilarity:
+		return "0.95"
 	default: // phasePing или неизвестная фаза
-		return `{"decision":"ок","arguments":[],"assumptions":[],"risks":[],"confidence":0.5}`
+		return "РЕШЕНИЕ: ок\nУВЕРЕННОСТЬ: 0.5"
 	}
 }
 
 // classify определяет фазу по содержимому системного промпта.
 func classify(system string) phase {
 	switch {
+	case strings.Contains(system, "смысловое совпадение"):
+		return phaseSimilarity
 	case strings.Contains(system, "арбитр дебата"):
 		return phaseConsensus
 	case strings.Contains(system, "Пересмотри СВОЁ предложение"):

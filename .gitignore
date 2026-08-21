@@ -15,6 +15,9 @@
 /arca.yaml
 /arca.db
 
+# Локальные логи отладки
+/log.txt
+
 # Test binary, built with `go test -c`
 *.test
 

@@ -17,7 +17,7 @@ func runTrace(args []string, cfg config.Config) error {
 	}
 	taskID := args[0]
 
-	a, err := buildApp(cfg)
+	a, err := buildApp(cfg, false)
 	if err != nil {
 		return err
 	}

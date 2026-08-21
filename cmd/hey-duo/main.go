@@ -39,23 +39,24 @@ func main() {
 	command := args[0]
 	rest := args[1:]
 
-	// Флаг --config может стоять после подкоманды: hey-duo ask --config path "..."
-	cfgPath, rest, err := extractConfigFlag(rest)
+	// Флаги --config и --dev могут стоять после подкоманды:
+	// hey-duo ask --config path --dev "..."
+	cfgPath, dev, rest, err := extractFlags(rest)
 	if err != nil {
 		fail(err)
 	}
 
 	switch command {
 	case "ask":
-		fail(runAsk(rest, loadConfig(cfgPath)))
+		fail(runAsk(rest, loadConfig(cfgPath), dev))
 	case "trace":
 		fail(runTrace(rest, loadConfig(cfgPath)))
 	case "config":
 		fail(runConfigView(rest, loadConfig(cfgPath)))
 	case "health":
-		fail(runHealth(rest, loadConfig(cfgPath)))
+		fail(runHealth(rest, loadConfig(cfgPath), dev))
 	case "bench":
-		fail(runBench(rest, loadConfig(cfgPath)))
+		fail(runBench(rest, loadConfig(cfgPath), dev))
 	case "setup":
 		// setup не читает существующий конфиг — он его создаёт.
 		fail(runSetup(rest, cfgPath))
@@ -81,14 +82,14 @@ func loadConfig(path string) config.Config {
 	return cfg
 }
 
-// extractConfigFlag вынимает --config <путь> из аргументов подкоманды.
-func extractConfigFlag(args []string) (path string, rest []string, err error) {
+// extractFlags вынимает --config <путь> и --dev из аргументов подкоманды.
+func extractFlags(args []string) (path string, dev bool, rest []string, err error) {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
 		case a == "--config" || a == "-config":
 			if i+1 >= len(args) {
-				return "", nil, fmt.Errorf("hey-duo: флаг %s требует путь к файлу", a)
+				return "", false, nil, fmt.Errorf("hey-duo: флаг %s требует путь к файлу", a)
 			}
 			path = args[i+1]
 			i++
@@ -96,11 +97,13 @@ func extractConfigFlag(args []string) (path string, rest []string, err error) {
 			path = strings.TrimPrefix(a, "--config=")
 		case strings.HasPrefix(a, "-config="):
 			path = strings.TrimPrefix(a, "-config=")
+		case a == "--dev" || a == "-dev":
+			dev = true
 		default:
 			rest = append(rest, a)
 		}
 	}
-	return path, rest, nil
+	return path, dev, rest, nil
 }
 
 // usage печатает справку.
@@ -117,6 +120,7 @@ func usage() {
 	fmt.Println()
 	fmt.Println("Режимы: fast, normal, deliberate, critical")
 	fmt.Println("Конфигурация: --config <путь> или $ARCA_CONFIG (по умолчанию ./arca.yaml)")
+	fmt.Println("Отладка: --dev — полные промпты и ответы моделей в stderr")
 }
 
 // fail печатает ошибку и завершает процесс с кодом 1.

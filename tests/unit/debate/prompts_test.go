@@ -1,4 +1,4 @@
-// Тесты построителей промптов и разбора JSON-ответов LLM.
+// Тесты построителей промптов и разбора текстовых ответов LLM.
 package debate_test
 
 import (
@@ -61,7 +61,7 @@ func TestProposalPrompt(t *testing.T) {
 	}
 
 	sys := systemMessage(msgs)
-	required := []string{"decision", "arguments", "assumptions", "risks", "confidence", "JSON"}
+	required := []string{"РЕШЕНИЕ:", "АРГУМЕНТЫ:", "ДОПУЩЕНИЯ:", "РИСКИ:", "УВЕРЕННОСТЬ:"}
 	for _, field := range required {
 		if !strings.Contains(sys, field) {
 			t.Errorf("системный промпт не упоминает %q", field)
@@ -86,8 +86,8 @@ func TestCritiquePrompt(t *testing.T) {
 	msgs := debate.CritiquePrompt(task, target, "контекст")
 	sys := systemMessage(msgs)
 	required := []string{
-		"valid_points", "errors", "missing_information",
-		"risks", "counter_arguments", "proposed_changes", "JSON",
+		"ВЕРНЫЕ УТВЕРЖДЕНИЯ:", "ОШИБКИ:", "НЕ ХВАТАЕТ ИНФОРМАЦИИ:",
+		"РИСКИ:", "КОНТРАРГУМЕНТЫ:", "ПРЕДЛАГАЕМЫЕ ИЗМЕНЕНИЯ:",
 	}
 	for _, field := range required {
 		if !strings.Contains(sys, field) {
@@ -107,14 +107,14 @@ func TestRevisionPrompt(t *testing.T) {
 	task := mustTask(t)
 	own := mustProposal(t, "Использовать SQLite", "participant-a")
 	critique := domain.Critique{
-		Errors:           []string{"нет оценки нагрузки"},
-		ProposedChanges:  []string{"добавить оговорку про WAL"},
+		Errors:             []string{"нет оценки нагрузки"},
+		ProposedChanges:    []string{"добавить оговорку про WAL"},
 		MissingInformation: []string{"требования к конкурентности"},
 	}
 
 	msgs := debate.RevisionPrompt(task, own, critique, "контекст")
 	sys := systemMessage(msgs)
-	if !strings.Contains(strings.ToLower(sys), "пересмотр") {
+	if !strings.Contains(strings.ToLower(sys), "пересмотри") {
 		t.Error("системный промпт пересмотра не идентифицирует фазу")
 	}
 
@@ -139,8 +139,8 @@ func TestConsensusPrompt(t *testing.T) {
 	msgs := debate.ConsensusPrompt(pa, pb, ra, rb, requirements)
 	sys := systemMessage(msgs)
 	required := []string{
-		"agreement", "decision", "requirements", "arguments",
-		"risks", "confidence", "JSON",
+		"СОГЛАСИЕ:", "РЕШЕНИЕ:", "ТРЕБОВАНИЯ:", "АРГУМЕНТЫ:",
+		"РИСКИ:", "УВЕРЕННОСТЬ:", "ОБОСНОВАНИЕ:",
 	}
 	for _, field := range required {
 		if !strings.Contains(sys, field) {
@@ -156,25 +156,27 @@ func TestConsensusPrompt(t *testing.T) {
 	}
 }
 
-// --- Разбор Proposal JSON ---
+// --- Разбор Proposal (текстовый протокол) ---
 
-const validProposalJSON = `{
-	"decision": "Использовать SQLite",
-	"arguments": ["ноль настроек", "один файл"],
-	"assumptions": ["данные небольшие"],
-	"risks": ["потеря файла"],
-	"confidence": 0.9
-}`
+const validProposalText = `РЕШЕНИЕ: Использовать SQLite
+АРГУМЕНТЫ:
+- ноль настроек
+- один файл
+ДОПУЩЕНИЯ:
+- данные небольшие
+РИСКИ:
+- потеря файла
+УВЕРЕННОСТЬ: 0.9`
 
 func TestParseProposal(t *testing.T) {
-	p, err := debate.ParseProposal(validProposalJSON)
+	p, err := debate.ParseProposal(validProposalText)
 	if err != nil {
 		t.Fatalf("ParseProposal вернул ошибку: %v", err)
 	}
 	if p.Decision != "Использовать SQLite" {
 		t.Fatalf("Decision = %q", p.Decision)
 	}
-	if len(p.Arguments) != 2 || len(p.Risks) != 1 {
+	if len(p.Arguments) != 2 || len(p.Risks) != 1 || len(p.Assumptions) != 1 {
 		t.Fatalf("списки не разобраны: %+v", p)
 	}
 	if p.Confidence != 0.9 {
@@ -182,150 +184,260 @@ func TestParseProposal(t *testing.T) {
 	}
 }
 
-// TestParseProposalDirty — модели часто добавляют пояснения вокруг JSON
-// или оборачивают его в markdown-блоки; парсер должен извлекать объект.
+// TestParseProposalDirty — модели пишут заголовки в разных стилях;
+// парсер должен извлекать секции из «грязного» текста.
 func TestParseProposalDirty(t *testing.T) {
-	cases := []string{
-		"Вот моё предложение: " + validProposalJSON,
-		"```json\n" + validProposalJSON + "\n```",
-		"```\n" + validProposalJSON + "\n```",
-		"Преамбула.\n" + validProposalJSON + "\nПостскриптум.",
-		"{\"decision\": \"A\"}: пояснение после объекта",
-		"{\\\"decision\\\":\\\"A\\\",\\\"arguments\\\":[],\\\"confidence\\\":0.5}",
-		"Некоторые модели экранируют даже фигурные скобки: \\{\\\"decision\\\":\\\"A\\\"\\}",
-	}
-	for _, raw := range cases {
-		p, err := debate.ParseProposal(raw)
-		if err != nil {
-			t.Fatalf("ParseProposal(%q) вернул ошибку: %v", raw, err)
-		}
-		if p.Decision == "" {
-			t.Fatalf("решение не извлечено из %q", raw)
-		}
-	}
-}
-
-func TestParseProposalInvalid(t *testing.T) {
 	cases := []struct {
-		name string
-		json string
+		name     string
+		raw      string
+		decision string
 	}{
-		{"не JSON", "не json"},
-		{"пустое решение", `{"decision": "", "confidence": 0.5}`},
-		{"нет решения", `{"arguments": ["a"]}`},
-		{"уверенность вне диапазона", `{"decision": "x", "confidence": 2}`},
-		{"уверенность отрицательная", `{"decision": "x", "confidence": -1}`},
-		{"пустой JSON объект", `{}`},
+		{"markdown-жирный", "**РЕШЕНИЕ:** Использовать SQLite\n**АРГУМЕНТЫ:**\n- простота", "Использовать SQLite"},
+		{"нумерация", "1. РЕШЕНИЕ: Использовать SQLite\n2. АРГУМЕНТЫ:\n- простота", "Использовать SQLite"},
+		{"английские заголовки", "DECISION: Use SQLite\nARGUMENTS:\n- simple\nCONFIDENCE: 0.8", "Use SQLite"},
+		{"преамбула перед ответом", "Вот моё предложение.\nРЕШЕНИЕ: Использовать SQLite\nУВЕРЕННОСТЬ: 0.7", "Использовать SQLite"},
+		{"звёздочки-маркеры", "РЕШЕНИЕ: Использовать SQLite\nАРГУМЕНТЫ:\n* простота\n* один файл", "Использовать SQLite"},
+		{"решение на строке заголовка отсутствует", "РЕШЕНИЕ:\nИспользовать SQLite с WAL\nУВЕРЕННОСТЬ: 0.6", "Использовать SQLite с WAL"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := debate.ParseProposal(tc.json); err == nil {
-				t.Error("ожидалась ошибка разбора")
+			p, err := debate.ParseProposal(tc.raw)
+			if err != nil {
+				t.Fatalf("ParseProposal вернул ошибку: %v", err)
+			}
+			if p.Decision != tc.decision {
+				t.Fatalf("Decision = %q, ожидалось %q", p.Decision, tc.decision)
 			}
 		})
 	}
 }
 
-// --- Разбор Critique JSON ---
+// TestParseProposalDefaults — пропущенные секции заменяются значениями
+// по умолчанию, а не приводят к ошибке.
+func TestParseProposalDefaults(t *testing.T) {
+	p, err := debate.ParseProposal("РЕШЕНИЕ: Использовать SQLite")
+	if err != nil {
+		t.Fatalf("ParseProposal: %v", err)
+	}
+	if len(p.Arguments) != 0 || len(p.Risks) != 0 || len(p.Assumptions) != 0 {
+		t.Fatalf("пропущенные списки должны быть пустыми: %+v", p)
+	}
+	if p.Confidence != 0.5 {
+		t.Fatalf("Confidence по умолчанию = %v, ожидалось 0.5", p.Confidence)
+	}
+}
 
-const validCritiqueJSON = `{
-	"valid_points": ["аргумент верен"],
-	"errors": ["не указана нагрузка"],
-	"missing_information": ["требования к конкурентности"],
-	"risks": ["потеря данных"],
-	"counter_arguments": ["можно PostgreSQL"],
-	"proposed_changes": ["добавить WAL"]
-}`
+// TestParseProposalConfidenceFormats — уверенность в разных форматах.
+func TestParseProposalConfidenceFormats(t *testing.T) {
+	cases := []struct {
+		raw  string
+		want float64
+	}{
+		{"РЕШЕНИЕ: x\nУВЕРЕННОСТЬ: 0,8", 0.8},
+		{"РЕШЕНИЕ: x\nУВЕРЕННОСТЬ: 90%", 0.9},
+		{"РЕШЕНИЕ: x\nCONFIDENCE: 85", 0.85},
+		{"РЕШЕНИЕ: x\nУВЕРЕННОСТЬ: нет", 0.5},
+	}
+	for _, tc := range cases {
+		p, err := debate.ParseProposal(tc.raw)
+		if err != nil {
+			t.Fatalf("ParseProposal(%q): %v", tc.raw, err)
+		}
+		if diff := p.Confidence - tc.want; diff < -0.001 || diff > 0.001 {
+			t.Fatalf("%q: Confidence = %v, ожидалось %v", tc.raw, p.Confidence, tc.want)
+		}
+	}
+}
+
+// TestParseProposalFallbackDecision — если секции РЕШЕНИЕ нет вовсе,
+// решением становится первая содержательная строка ответа.
+func TestParseProposalFallbackDecision(t *testing.T) {
+	p, err := debate.ParseProposal("Предлагаю использовать SQLite из-за простоты.")
+	if err != nil {
+		t.Fatalf("ParseProposal: %v", err)
+	}
+	if p.Decision == "" {
+		t.Fatal("решение не извлечено из свободного текста")
+	}
+}
+
+// TestParseProposalInvalid — совсем пустой ответ — ошибка.
+func TestParseProposalInvalid(t *testing.T) {
+	cases := []string{"", "   \n\t\n"}
+	for _, raw := range cases {
+		if _, err := debate.ParseProposal(raw); err == nil {
+			t.Errorf("ожидалась ошибка для ответа %q", raw)
+		}
+	}
+}
+
+// --- Разбор Critique ---
+
+const validCritiqueText = `ВЕРНЫЕ УТВЕРЖДЕНИЯ:
+- выбор SQLite обоснован
+ОШИБКИ:
+- нет оценки конкурентности
+НЕ ХВАТАЕТ ИНФОРМАЦИИ:
+- требования к нагрузке
+РИСКИ:
+- блокировки записи
+КОНТРАРГУМЕНТЫ:
+- Postgres даёт репликацию
+ПРЕДЛАГАЕМЫЕ ИЗМЕНЕНИЯ:
+- добавить WAL`
 
 func TestParseCritique(t *testing.T) {
-	c, err := debate.ParseCritique(validCritiqueJSON)
+	c, err := debate.ParseCritique(validCritiqueText)
 	if err != nil {
 		t.Fatalf("ParseCritique вернул ошибку: %v", err)
 	}
-	if len(c.Errors) != 1 || len(c.ValidPoints) != 1 || len(c.ProposedChanges) != 1 {
-		t.Fatalf("поля критики не разобраны: %+v", c)
+	if len(c.ValidPoints) != 1 || len(c.Errors) != 1 || len(c.MissingInformation) != 1 ||
+		len(c.Risks) != 1 || len(c.CounterArguments) != 1 || len(c.ProposedChanges) != 1 {
+		t.Fatalf("критика разобрана неполностью: %+v", c)
 	}
-	if !c.HasContent() {
-		t.Fatal("разобранная критика должна иметь содержимое")
+	if c.Errors[0] != "нет оценки конкурентности" {
+		t.Fatalf("Errors[0] = %q", c.Errors[0])
 	}
 }
 
+// TestParseCritiquePartial — частичная критика валидна.
+func TestParseCritiquePartial(t *testing.T) {
+	c, err := debate.ParseCritique("ОШИБКИ:\n- нет оценки нагрузки")
+	if err != nil {
+		t.Fatalf("ParseCritique: %v", err)
+	}
+	if len(c.Errors) != 1 || c.HasContent() == false {
+		t.Fatalf("критика не разобрана: %+v", c)
+	}
+}
+
+// TestParseCritiqueInvalid — без содержательных секций критика отклоняется.
 func TestParseCritiqueInvalid(t *testing.T) {
-	cases := []struct {
-		name string
-		json string
-	}{
-		{"не JSON", "не json"},
-		{"пустая критика", `{}`},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if _, err := debate.ParseCritique(tc.json); err == nil {
-				t.Error("ожидалась ошибка разбора")
-			}
-		})
+	cases := []string{"", "просто текст без секций"}
+	for _, raw := range cases {
+		if _, err := debate.ParseCritique(raw); err == nil {
+			t.Errorf("ожидалась ошибка для ответа %q", raw)
+		}
 	}
 }
 
-// --- Разбор Consensus verdict JSON ---
+// --- Разбор ConsensusVerdict ---
 
-const validVerdictJSON = `{
-	"agreement": "CONSENSUS",
-	"decision": "SQLite с WAL",
-	"requirements": ["без C toolchain"],
-	"arguments": ["низкая стоимость поддержки"],
-	"risks": ["один файл — узкое место"],
-	"confidence": 0.9,
-	"reasoning": "обе стороны сошлись"
-}`
+const validVerdictText = `СОГЛАСИЕ: CONSENSUS
+РЕШЕНИЕ: Использовать SQLite
+ТРЕБОВАНИЯ:
+- чистый Go
+АРГУМЕНТЫ:
+- миграции просты
+РИСКИ:
+- блокировки
+УВЕРЕННОСТЬ: 0.9
+ОБОСНОВАНИЕ: участники согласны`
 
 func TestParseConsensusVerdict(t *testing.T) {
-	v, err := debate.ParseConsensusVerdict(validVerdictJSON)
+	v, err := debate.ParseConsensusVerdict(validVerdictText)
 	if err != nil {
 		t.Fatalf("ParseConsensusVerdict вернул ошибку: %v", err)
 	}
 	if v.Agreement != debate.AgreementConsensus {
-		t.Fatalf("Agreement = %q", v.Agreement)
+		t.Fatalf("Agreement = %s", v.Agreement)
 	}
-	if len(v.Requirements) != 1 || v.Confidence != 0.9 {
-		t.Fatalf("поля вердикта не разобраны: %+v", v)
+	if v.Decision != "Использовать SQLite" {
+		t.Fatalf("Decision = %q", v.Decision)
+	}
+	if len(v.Requirements) != 1 || len(v.Arguments) != 1 || len(v.Risks) != 1 {
+		t.Fatalf("списки не разобраны: %+v", v)
+	}
+	if v.Confidence != 0.9 {
+		t.Fatalf("Confidence = %v", v.Confidence)
+	}
+	if v.Reasoning != "участники согласны" {
+		t.Fatalf("Reasoning = %q", v.Reasoning)
 	}
 }
 
-func TestParseConsensusVerdictInvalid(t *testing.T) {
+// TestParseConsensusVerdictAgreements — все три значения согласия,
+// включая русские синонимы и грязный формат.
+func TestParseConsensusVerdictAgreements(t *testing.T) {
 	cases := []struct {
-		name string
-		json string
+		raw  string
+		want debate.Agreement
 	}{
-		{"не JSON", "не json"},
-		{"нет поля agreement", `{"decision": "x"}`},
-		{"неизвестный agreement", `{"agreement": "MAYBE"}`},
-		{"уверенность вне диапазона", `{"agreement": "CONSENSUS", "confidence": 7}`},
+		{"СОГЛАСИЕ: CONSENSUS\nРЕШЕНИЕ: x", debate.AgreementConsensus},
+		{"СОГЛАСИЕ: DISAGREEMENT\nРЕШЕНИЕ: x", debate.AgreementDisagreement},
+		{"СОГЛАСИЕ: INSUFFICIENT_DATA\nРЕШЕНИЕ: x", debate.AgreementInsufficientData},
+		{"Согласие: консенсус достигнут", debate.AgreementConsensus},
+		{"**СОГЛАСИЕ:** несогласие по хранению", debate.AgreementDisagreement},
+		{"AGREEMENT: insufficient data", debate.AgreementInsufficientData},
 	}
 	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if _, err := debate.ParseConsensusVerdict(tc.json); err == nil {
-				t.Error("ожидалась ошибка разбора")
-			}
-		})
+		v, err := debate.ParseConsensusVerdict(tc.raw)
+		if err != nil {
+			t.Fatalf("ParseConsensusVerdict(%q): %v", tc.raw, err)
+		}
+		if v.Agreement != tc.want {
+			t.Fatalf("%q: Agreement = %s, ожидалось %s", tc.raw, v.Agreement, tc.want)
+		}
 	}
 }
 
-// --- Round-trip JSON ---
+// TestParseConsensusVerdictDefaultInsufficient — нераспознанное согласие
+// трактуется как INSUFFICIENT_DATA, а не как искусственный консенсус.
+func TestParseConsensusVerdictDefaultInsufficient(t *testing.T) {
+	v, err := debate.ParseConsensusVerdict("Не могу определить.")
+	if err != nil {
+		t.Fatalf("ParseConsensusVerdict: %v", err)
+	}
+	if v.Agreement != debate.AgreementInsufficientData {
+		t.Fatalf("Agreement = %s, ожидался INSUFFICIENT_DATA", v.Agreement)
+	}
+}
 
-func TestProposalRoundTrip(t *testing.T) {
-	// Кандидат должен разбираться из строки, которую сам же может отдать.
-	p, err := domain.NewProposal("p-1", "participant-a", "Выбрать SQLite",
-		[]string{"аргумент"}, []string{"допущение"}, []string{"риск"}, 0.7)
-	if err != nil {
-		t.Fatal(err)
+// --- Сериализация в текстовый протокол (для mock и тестов) ---
+
+func TestProposalToTextRoundTrip(t *testing.T) {
+	src := domain.Proposal{
+		Decision:    "SQLite",
+		Arguments:   []string{"простота"},
+		Assumptions: []string{"малые данные"},
+		Risks:       []string{"блокировки"},
+		Confidence:  0.75,
 	}
-	raw := debate.ProposalToJSON(p)
-	back, err := debate.ParseProposal(raw)
+	p, err := debate.ParseProposal(debate.ProposalToText(src))
 	if err != nil {
-		t.Fatalf("обратный разбор не удался: %v", err)
+		t.Fatalf("ParseProposal(ProposalToText): %v", err)
 	}
-	if back.Decision != p.Decision || back.Confidence != p.Confidence {
-		t.Fatalf("round-trip не совпал: %+v vs %+v", back, p)
+	if p.Decision != src.Decision || len(p.Arguments) != 1 || len(p.Risks) != 1 || len(p.Assumptions) != 1 {
+		t.Fatalf("round-trip искажён: %+v", p)
+	}
+	if diff := p.Confidence - src.Confidence; diff < -0.01 || diff > 0.01 {
+		t.Fatalf("round-trip Confidence = %v", p.Confidence)
+	}
+}
+
+func TestCritiqueToTextRoundTrip(t *testing.T) {
+	src := domain.Critique{Errors: []string{"x"}, ProposedChanges: []string{"y"}}
+	c, err := debate.ParseCritique(debate.CritiqueToText(src))
+	if err != nil {
+		t.Fatalf("ParseCritique(CritiqueToText): %v", err)
+	}
+	if len(c.Errors) != 1 || len(c.ProposedChanges) != 1 {
+		t.Fatalf("round-trip искажён: %+v", c)
+	}
+}
+
+func TestVerdictToTextRoundTrip(t *testing.T) {
+	src := debate.ConsensusVerdict{
+		Agreement:  debate.AgreementDisagreement,
+		Decision:   "нет единого решения",
+		Confidence: 0.4,
+		Reasoning:  "подходы различаются",
+	}
+	v, err := debate.ParseConsensusVerdict(debate.VerdictToText(src))
+	if err != nil {
+		t.Fatalf("ParseConsensusVerdict(VerdictToText): %v", err)
+	}
+	if v.Agreement != src.Agreement || v.Decision != src.Decision || v.Reasoning != src.Reasoning {
+		t.Fatalf("round-trip искажён: %+v", v)
 	}
 }

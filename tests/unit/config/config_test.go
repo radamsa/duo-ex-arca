@@ -180,6 +180,13 @@ llm:
 debate:
   consensus_threshold: 1.5
 `},
+		{"similarity_threshold вне диапазона", `
+llm:
+  participant_a: {base_url: "http://localhost:1/v1", model: "m-a"}
+  participant_b: {base_url: "http://localhost:1/v1", model: "m-b"}
+debate:
+  similarity_threshold: -0.5
+`},
 		{"неизвестный тип storage", `
 llm:
   participant_a: {base_url: "http://localhost:1/v1", model: "m-a"}
@@ -248,6 +255,9 @@ func TestDefault(t *testing.T) {
 	cfg := config.Default()
 	if cfg.Debate.DefaultMode == "" || cfg.Debate.ConsensusThreshold <= 0 {
 		t.Fatalf("дефолтные значения не заполнены: %+v", cfg.Debate)
+	}
+	if cfg.Debate.SimilarityThreshold <= 0 || cfg.Debate.SimilarityThreshold > 1 {
+		t.Fatalf("дефолтный similarity_threshold не заполнен: %+v", cfg.Debate)
 	}
 	if cfg.Storage.Type != "sqlite" || cfg.Storage.Path == "" {
 		t.Fatalf("дефолтный storage неверный: %+v", cfg.Storage)

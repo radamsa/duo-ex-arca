@@ -53,7 +53,7 @@ func parseAskFlags(args []string) (askFlags, error) {
 }
 
 // runAsk выполняет подкоманду ask.
-func runAsk(args []string, cfg config.Config) error {
+func runAsk(args []string, cfg config.Config, dev bool) error {
 	flags, err := parseAskFlags(args)
 	if err != nil {
 		return err
@@ -71,7 +71,7 @@ func runAsk(args []string, cfg config.Config) error {
 		return fmt.Errorf("hey-duo: невалидный режим %q (fast/normal/deliberate/critical)", modeName)
 	}
 
-	a, err := buildApp(cfg)
+	a, err := buildApp(cfg, dev)
 	if err != nil {
 		return err
 	}

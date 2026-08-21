@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/radamsa/duo-ex-arca/internal/agent"
@@ -38,6 +39,15 @@ func newClient(p config.ParticipantConfig, timeout time.Duration) *llm.Client {
 	)
 }
 
+// maybeDebug в режиме --dev оборачивает клиента в отладочный декоратор,
+// пишущий полные промпты и ответы модели в stderr.
+func maybeDebug(label string, inner *llm.Client, dev bool) llm.LLM {
+	if !dev {
+		return inner
+	}
+	return llm.NewDebugClient(label, os.Stderr, inner)
+}
+
 // app — собранный агент: runner и репозитории.
 type app struct {
 	runner    *agent.Runner
@@ -50,13 +60,13 @@ type app struct {
 }
 
 // buildApp собирает pipeline: клиенты -> движок -> runner -> хранилище.
-func buildApp(cfg config.Config) (*app, error) {
+func buildApp(cfg config.Config, dev bool) (*app, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 
-	participantA := debate.NewParticipant("participant-a", newClient(cfg.LLM.ParticipantA, llmTimeout(cfg)))
-	participantB := debate.NewParticipant("participant-b", newClient(cfg.LLM.ParticipantB, llmTimeout(cfg)))
+	participantA := debate.NewParticipant("participant-a", maybeDebug("participant-a", newClient(cfg.LLM.ParticipantA, llmTimeout(cfg)), dev))
+	participantB := debate.NewParticipant("participant-b", maybeDebug("participant-b", newClient(cfg.LLM.ParticipantB, llmTimeout(cfg)), dev))
 	contextBuilder := ctxb.New()
 
 	db, err := sqlite.Open(cfg.Storage.Path)
@@ -72,12 +82,13 @@ func buildApp(cfg config.Config) (*app, error) {
 	recorder := newSQLiteRecorder(traceRepo)
 
 	engine, err := debate.NewEngine(debate.EngineConfig{
-		ParticipantA:       participantA,
-		ParticipantB:       participantB,
-		ContextBuilder:     contextBuilder,
-		ConsensusThreshold: cfg.Debate.ConsensusThreshold,
-		MaxRounds:          modeRounds(cfg.Debate.MaxRounds),
-		Trace:              recorder,
+		ParticipantA:        participantA,
+		ParticipantB:        participantB,
+		ContextBuilder:      contextBuilder,
+		ConsensusThreshold:  cfg.Debate.ConsensusThreshold,
+		SimilarityThreshold: cfg.Debate.SimilarityThreshold,
+		MaxRounds:           modeRounds(cfg.Debate.MaxRounds),
+		Trace:               recorder,
 	})
 	if err != nil {
 		return closeOnError(err)

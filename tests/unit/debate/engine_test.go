@@ -3,7 +3,6 @@ package debate_test
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -14,20 +13,15 @@ import (
 	"github.com/radamsa/duo-ex-arca/internal/llm"
 )
 
-// verdictJSON собирает JSON-вердикт из параметров.
+// verdictText собирает текстовый вердикт из параметров.
 func verdictJSON(agreement string, decision string, conf float64) string {
-	v := debate.ConsensusVerdict{
+	return debate.VerdictToText(debate.ConsensusVerdict{
 		Agreement:  debate.Agreement(agreement),
 		Decision:   decision,
 		Confidence: conf,
 		Arguments:  []string{"общий аргумент"},
 		Risks:      []string{"общий риск"},
-	}
-	data, err := json.Marshal(v)
-	if err != nil {
-		panic(err)
-	}
-	return string(data)
+	})
 }
 
 // allMessages объединяет содержимое сообщений указанного вызова.
@@ -53,16 +47,16 @@ func errorsNew(msg string) error {
 func scriptConsensusRound(mockA, mockB *llm.Mock, verdictA, verdictB string) {
 	pa := domain.Proposal{Decision: "Использовать SQLite", Arguments: []string{"простота"}, Confidence: 0.9}
 	pb := domain.Proposal{Decision: "Использовать SQLite", Arguments: []string{"простота"}, Confidence: 0.9}
-	mockA.Respond(debate.ProposalToJSON(pa), llm.Usage{})
-	mockB.Respond(debate.ProposalToJSON(pb), llm.Usage{})
+	mockA.Respond(debate.ProposalToText(pa), llm.Usage{})
+	mockB.Respond(debate.ProposalToText(pb), llm.Usage{})
 
-	mockA.Respond(debate.CritiqueToJSON(domain.Critique{Errors: []string{"нет оценки нагрузки"}}), llm.Usage{})
-	mockB.Respond(debate.CritiqueToJSON(domain.Critique{Errors: []string{"нет оценки нагрузки"}}), llm.Usage{})
+	mockA.Respond(debate.CritiqueToText(domain.Critique{Errors: []string{"нет оценки нагрузки"}}), llm.Usage{})
+	mockB.Respond(debate.CritiqueToText(domain.Critique{Errors: []string{"нет оценки нагрузки"}}), llm.Usage{})
 
 	ra := domain.Proposal{Decision: "SQLite с WAL", Arguments: []string{"надёжность"}, Confidence: 0.9}
 	rb := domain.Proposal{Decision: "SQLite с WAL", Arguments: []string{"надёжность"}, Confidence: 0.9}
-	mockA.Respond(debate.ProposalToJSON(ra), llm.Usage{})
-	mockB.Respond(debate.ProposalToJSON(rb), llm.Usage{})
+	mockA.Respond(debate.ProposalToText(ra), llm.Usage{})
+	mockB.Respond(debate.ProposalToText(rb), llm.Usage{})
 
 	mockA.Respond(verdictA, llm.Usage{})
 	mockB.Respond(verdictB, llm.Usage{})
@@ -238,6 +232,79 @@ func TestDeliberateEarlyTermination(t *testing.T) {
 	}
 }
 
+// TestDeliberateSimilarityConfirmed — арбитры объявили консенсус с разными
+// формулировками; оба подтверждают смысловое совпадение — консенсус.
+func TestDeliberateSimilarityConfirmed(t *testing.T) {
+	engine, mockA, mockB, task := newTestEngine(t, 3, domain.NORMAL)
+	scriptConsensusRound(mockA, mockB,
+		verdictJSON("CONSENSUS", "Встроенная СУБД без внешних сервисов", 0.9),
+		verdictJSON("CONSENSUS", "Использовать SQLite как единственное хранилище", 0.9))
+	mockA.Respond("0.9", llm.Usage{})
+	mockB.Respond("0.95", llm.Usage{})
+
+	decided, err := engine.Deliberate(context.Background(), task, "run-test")
+	if err != nil {
+		t.Fatalf("Deliberate вернул ошибку: %v", err)
+	}
+
+	if decided.Decision.Status != domain.Consensus {
+		t.Fatalf("Status = %s, ожидался CONSENSUS", decided.Decision.Status)
+	}
+	// В итог берётся более подробная формулировка.
+	if decided.Decision.Decision != "Использовать SQLite как единственное хранилище" {
+		t.Fatalf("Decision = %q", decided.Decision.Decision)
+	}
+	if len(mockA.Calls()) != 5 || len(mockB.Calls()) != 5 {
+		t.Fatalf("ожидалось по 5 вызовов (4 фазы + similarity): A: %d, B: %d",
+			len(mockA.Calls()), len(mockB.Calls()))
+	}
+	// Последний вызов каждого участника — проверка совпадения с обеими формулировками.
+	simPromptA := allMessages(mockA, 4)
+	if !strings.Contains(simPromptA, "Встроенная СУБД") ||
+		!strings.Contains(simPromptA, "единственное хранилище") {
+		t.Fatalf("промпт similarity не содержит обе формулировки: %q", simPromptA)
+	}
+}
+
+// TestDeliberateSimilarityRejected — один из арбитров даёт низкий
+// коэффициент — ложный консенсус, итог DISAGREEMENT.
+func TestDeliberateSimilarityRejected(t *testing.T) {
+	engine, mockA, mockB, task := newTestEngine(t, 1, domain.NORMAL)
+	scriptConsensusRound(mockA, mockB,
+		verdictJSON("CONSENSUS", "Хранить данные в SQLite", 0.9),
+		verdictJSON("CONSENSUS", "Переписать проект на PostgreSQL", 0.9))
+	mockA.Respond("0.95", llm.Usage{})
+	mockB.Respond("0.2", llm.Usage{})
+
+	decided, err := engine.Deliberate(context.Background(), task, "run-test")
+	if err != nil {
+		t.Fatalf("Deliberate вернул ошибку: %v", err)
+	}
+
+	if decided.Decision.Status != domain.Disagreement {
+		t.Fatalf("Status = %s, ожидался DISAGREEMENT", decided.Decision.Status)
+	}
+	if len(mockA.Calls()) != 5 || len(mockB.Calls()) != 5 {
+		t.Fatalf("ожидалось по 5 вызовов (4 фазы + similarity): A: %d, B: %d",
+			len(mockA.Calls()), len(mockB.Calls()))
+	}
+}
+
+// TestDeliberateSimilarityInvalidResponse — мусор вместо коэффициента
+// приводит к ошибке движка.
+func TestDeliberateSimilarityInvalidResponse(t *testing.T) {
+	engine, mockA, mockB, task := newTestEngine(t, 1, domain.NORMAL)
+	scriptConsensusRound(mockA, mockB,
+		verdictJSON("CONSENSUS", "Хранить данные в SQLite", 0.9),
+		verdictJSON("CONSENSUS", "Переписать проект на PostgreSQL", 0.9))
+	mockA.Respond("не знаю", llm.Usage{})
+	mockB.Respond("0.9", llm.Usage{})
+
+	if _, err := engine.Deliberate(context.Background(), task, "run-test"); err == nil {
+		t.Fatal("ожидалась ошибка при нечисловом ответе арбитра")
+	}
+}
+
 // TestInitialProposalsIndependent — обязательный тест TASK-041:
 // контекст initial proposal A не содержит ответа B и наоборот.
 func TestInitialProposalsIndependent(t *testing.T) {
@@ -246,12 +313,12 @@ func TestInitialProposalsIndependent(t *testing.T) {
 	// Намеренно разные предложения: если ответы смешаются, тест это увидит.
 	pa := domain.Proposal{Decision: "СЕКРЕТ РЕШЕНИЯ A", Confidence: 0.9}
 	pb := domain.Proposal{Decision: "СЕКРЕТ РЕШЕНИЯ B", Confidence: 0.9}
-	mockA.Respond(debate.ProposalToJSON(pa), llm.Usage{})
-	mockB.Respond(debate.ProposalToJSON(pb), llm.Usage{})
-	mockA.Respond(debate.CritiqueToJSON(domain.Critique{Errors: []string{"x"}}), llm.Usage{})
-	mockB.Respond(debate.CritiqueToJSON(domain.Critique{Errors: []string{"x"}}), llm.Usage{})
-	mockA.Respond(debate.ProposalToJSON(pa), llm.Usage{})
-	mockB.Respond(debate.ProposalToJSON(pb), llm.Usage{})
+	mockA.Respond(debate.ProposalToText(pa), llm.Usage{})
+	mockB.Respond(debate.ProposalToText(pb), llm.Usage{})
+	mockA.Respond(debate.CritiqueToText(domain.Critique{Errors: []string{"x"}}), llm.Usage{})
+	mockB.Respond(debate.CritiqueToText(domain.Critique{Errors: []string{"x"}}), llm.Usage{})
+	mockA.Respond(debate.ProposalToText(pa), llm.Usage{})
+	mockB.Respond(debate.ProposalToText(pb), llm.Usage{})
 	mockA.Respond(verdictJSON("CONSENSUS", "SQLite", 0.9), llm.Usage{})
 	mockB.Respond(verdictJSON("CONSENSUS", "SQLite", 0.9), llm.Usage{})
 
@@ -289,15 +356,15 @@ func TestDeliberateProposalFailure(t *testing.T) {
 	}
 }
 
-// TestDeliberateInvalidJSONResponse — невалидный JSON от участника.
+// TestDeliberateInvalidResponse — пустой ответ участника даёт ошибку.
 func TestDeliberateInvalidJSONResponse(t *testing.T) {
 	engine, mockA, mockB, task := newTestEngine(t, 1, domain.NORMAL)
 
-	mockA.Respond("это не JSON", llm.Usage{})
-	mockB.Respond("это не JSON", llm.Usage{})
+	mockA.Respond("", llm.Usage{})
+	mockB.Respond("   ", llm.Usage{})
 
 	if _, err := engine.Deliberate(context.Background(), task, "run-test"); err == nil {
-		t.Fatal("ожидалась ошибка при невалидном JSON")
+		t.Fatal("ожидалась ошибка при пустом ответе")
 	}
 }
 

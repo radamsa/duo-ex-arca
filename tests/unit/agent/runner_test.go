@@ -3,7 +3,6 @@ package agent_test
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 	"sync"
@@ -65,30 +64,25 @@ func mustTask(t *testing.T, mode domain.TaskMode) domain.Task {
 }
 
 func verdictJSON(agreement string, decision string, conf float64) string {
-	v := debate.ConsensusVerdict{
+	return debate.VerdictToText(debate.ConsensusVerdict{
 		Agreement:  debate.Agreement(agreement),
 		Decision:   decision,
 		Confidence: conf,
-	}
-	data, err := json.Marshal(v)
-	if err != nil {
-		panic(err)
-	}
-	return string(data)
+	})
 }
 
 // scriptConsensusRound — сценарий одного консенсусного раунда.
 func scriptConsensusRound(mockA, mockB *llm.Mock) {
 	pa := domain.Proposal{Decision: "SQLite", Confidence: 0.9}
 	pb := domain.Proposal{Decision: "SQLite", Confidence: 0.9}
-	mockA.Respond(debate.ProposalToJSON(pa), llm.Usage{})
-	mockB.Respond(debate.ProposalToJSON(pb), llm.Usage{})
-	mockA.Respond(debate.CritiqueToJSON(domain.Critique{Errors: []string{"x"}}), llm.Usage{})
-	mockB.Respond(debate.CritiqueToJSON(domain.Critique{Errors: []string{"x"}}), llm.Usage{})
+	mockA.Respond(debate.ProposalToText(pa), llm.Usage{})
+	mockB.Respond(debate.ProposalToText(pb), llm.Usage{})
+	mockA.Respond(debate.CritiqueToText(domain.Critique{Errors: []string{"x"}}), llm.Usage{})
+	mockB.Respond(debate.CritiqueToText(domain.Critique{Errors: []string{"x"}}), llm.Usage{})
 	ra := domain.Proposal{Decision: "SQLite с WAL", Confidence: 0.9}
 	rb := domain.Proposal{Decision: "SQLite с WAL", Confidence: 0.9}
-	mockA.Respond(debate.ProposalToJSON(ra), llm.Usage{})
-	mockB.Respond(debate.ProposalToJSON(rb), llm.Usage{})
+	mockA.Respond(debate.ProposalToText(ra), llm.Usage{})
+	mockB.Respond(debate.ProposalToText(rb), llm.Usage{})
 	mockA.Respond(verdictJSON("CONSENSUS", "SQLite с WAL", 0.9), llm.Usage{})
 	mockB.Respond(verdictJSON("CONSENSUS", "SQLite с WAL", 0.9), llm.Usage{})
 }
@@ -98,7 +92,7 @@ func TestRunFast(t *testing.T) {
 	runner, mockFast, mockA, mockB := newRunner(t, 3)
 
 	fastProposal := domain.Proposal{Decision: "Быстрое решение", Arguments: []string{"скорость"}, Confidence: 0.7}
-	mockFast.Respond(debate.ProposalToJSON(fastProposal), llm.Usage{})
+	mockFast.Respond(debate.ProposalToText(fastProposal), llm.Usage{})
 
 	decision, _, err := runner.Run(context.Background(), mustTask(t, domain.FAST))
 	if err != nil {
@@ -163,7 +157,7 @@ func TestRunDeliberate(t *testing.T) {
 func TestRunEngineFailure(t *testing.T) {
 	runner, _, mockA, mockB := newRunner(t, 1)
 
-	mockA.Respond(debate.ProposalToJSON(domain.Proposal{Decision: "x", Confidence: 0.5}), llm.Usage{})
+	mockA.Respond(debate.ProposalToText(domain.Proposal{Decision: "x", Confidence: 0.5}), llm.Usage{})
 	mockB.Fail(errorsNew("модель недоступна"))
 
 	decision, _, err := runner.Run(context.Background(), mustTask(t, domain.NORMAL))
@@ -175,14 +169,14 @@ func TestRunEngineFailure(t *testing.T) {
 	}
 }
 
-// TestRunFastInvalidJSON — невалидный JSON в FAST даёт FAILED.
-func TestRunFastInvalidJSON(t *testing.T) {
+// TestRunFastInvalidResponse — пустой ответ модели в FAST даёт FAILED.
+func TestRunFastInvalidResponse(t *testing.T) {
 	runner, mockFast, _, _ := newRunner(t, 3)
-	mockFast.Respond("не JSON", llm.Usage{})
+	mockFast.Respond("", llm.Usage{})
 
 	decision, _, err := runner.Run(context.Background(), mustTask(t, domain.FAST))
 	if err == nil {
-		t.Fatal("ожидалась ошибка при невалидном JSON")
+		t.Fatal("ожидалась ошибка при пустом ответе модели")
 	}
 	if decision.Status != domain.Failed {
 		t.Fatalf("Status = %s, ожидался FAILED", decision.Status)
@@ -268,7 +262,7 @@ func TestRunEmitsTraceEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	mockFast.Respond(debate.ProposalToJSON(domain.Proposal{Decision: "x", Confidence: 0.5}), llm.Usage{})
+	mockFast.Respond(debate.ProposalToText(domain.Proposal{Decision: "x", Confidence: 0.5}), llm.Usage{})
 	if _, _, err := runner.Run(context.Background(), mustTask(t, domain.FAST)); err != nil {
 		t.Fatalf("Run вернул ошибку: %v", err)
 	}
@@ -289,7 +283,7 @@ func TestRunEmitsTraceEvents(t *testing.T) {
 func TestRunFastPromptContainsTask(t *testing.T) {
 	runner, mockFast, _, _ := newRunner(t, 3)
 	fastProposal := domain.Proposal{Decision: "x", Confidence: 0.5}
-	mockFast.Respond(debate.ProposalToJSON(fastProposal), llm.Usage{})
+	mockFast.Respond(debate.ProposalToText(fastProposal), llm.Usage{})
 
 	if _, _, err := runner.Run(context.Background(), mustTask(t, domain.FAST)); err != nil {
 		t.Fatalf("Run вернул ошибку: %v", err)
