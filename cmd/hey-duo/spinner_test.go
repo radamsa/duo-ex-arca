@@ -2,10 +2,14 @@
 package main
 
 import (
+	"context"
 	"os"
 	"strings"
 	"sync"
 	"testing"
+	"time"
+
+	"github.com/radamsa/duo-ex-arca/internal/llm"
 )
 
 // TestActivityReporterNilSafe — нулевой репортер (--dev) не паникует.
@@ -18,7 +22,7 @@ func TestActivityReporterNilSafe(t *testing.T) {
 
 // TestActivityReporterRender — строка содержит всех участников и стадии.
 func TestActivityReporterRender(t *testing.T) {
-	r := newActivityReporter(os.Stdout)
+	r := newActivityReporter(os.Stdout, nil)
 	r.set("participant-a", "предлагает решение")
 	r.set("participant-b", "критикует оппонента")
 
@@ -38,7 +42,7 @@ func TestActivityReporterRender(t *testing.T) {
 // TestActivityReporterUpdateStage — стадия участника обновляется на месте,
 // порядок участников стабильный.
 func TestActivityReporterUpdateStage(t *testing.T) {
-	r := newActivityReporter(os.Stdout)
+	r := newActivityReporter(os.Stdout, nil)
 	r.set("participant-b", "предлагает решение")
 	r.set("participant-a", "предлагает решение")
 	r.set("participant-b", "оценивает консенсус")
@@ -59,7 +63,7 @@ func TestActivityReporterUpdateStage(t *testing.T) {
 // TestActivityReporterConcurrentSet — set из нескольких горутин безопасен
 // (запускать с -race).
 func TestActivityReporterConcurrentSet(t *testing.T) {
-	r := newActivityReporter(os.Stdout)
+	r := newActivityReporter(os.Stdout, nil)
 
 	var wg sync.WaitGroup
 	stages := []string{"предлагает решение", "критикует оппонента", "оценивает консенсус"}
@@ -85,11 +89,60 @@ func TestActivityReporterConcurrentSet(t *testing.T) {
 	}
 }
 
+// TestActivityReporterRenderWithStats — строка содержит статистику
+// участника после учтённого вызова LLM.
+func TestActivityReporterRenderWithStats(t *testing.T) {
+	stats := llm.NewStatsCollector()
+	mock := llm.NewMock()
+	mock.Respond("ок", llm.Usage{PromptTokens: 900, CompletionTokens: 300})
+	client := llm.WithStats("participant-a", mock, stats)
+	if _, err := client.Generate(context.Background(), llm.GenerationRequest{}); err != nil {
+		t.Fatalf("Generate вернул ошибку: %v", err)
+	}
+
+	r := newActivityReporter(os.Stdout, stats)
+	r.set("participant-a", "оценивает консенсус")
+
+	line := func() string {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		return r.renderLocked("|")
+	}()
+	for _, want := range []string{"participant-a: оценивает консенсус", "1.2k tok"} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("в строке %q нет %q", line, want)
+		}
+	}
+}
+
+// TestFormatTokensAndDuration — компактные форматы.
+func TestFormatTokensAndDuration(t *testing.T) {
+	cases := []struct {
+		n    int
+		want string
+	}{
+		{980, "980"},
+		{1200, "1.2k"},
+		{3_400_000, "3.4M"},
+	}
+	for _, c := range cases {
+		if got := formatTokens(c.n); got != c.want {
+			t.Errorf("formatTokens(%d) = %q, ожидалось %q", c.n, got, c.want)
+		}
+	}
+	if got := formatDuration(8300 * time.Millisecond); got != "8.3s" {
+		t.Errorf("formatDuration(8.3s) = %q", got)
+	}
+	if got := formatDuration(72 * time.Second); got != "1m12s" {
+		t.Errorf("formatDuration(72s) = %q", got)
+	}
+}
+
 // TestActivityReporterSilentWhenNotTTY — при перенаправлении вывода
 // start/stop ничего не пишут.
 func TestActivityReporterSilentWhenNotTTY(t *testing.T) {
 	var buf syncBuffer
-	r := newActivityReporter(&buf)
+	r := newActivityReporter(&buf, nil)
 	r.set("participant-a", "предлагает решение")
 	r.start()
 	r.stopAndWait()

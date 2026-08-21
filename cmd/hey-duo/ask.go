@@ -11,6 +11,7 @@ import (
 
 	"github.com/radamsa/duo-ex-arca/internal/config"
 	"github.com/radamsa/duo-ex-arca/internal/domain"
+	"github.com/radamsa/duo-ex-arca/internal/llm"
 )
 
 // askFlags — разобранные флаги подкоманды ask.
@@ -53,7 +54,7 @@ func parseAskFlags(args []string) (askFlags, error) {
 }
 
 // runAsk выполняет подкоманду ask.
-func runAsk(args []string, cfg config.Config, dev bool) error {
+func runAsk(args []string, cfg config.Config, dev bool, logPath string) error {
 	flags, err := parseAskFlags(args)
 	if err != nil {
 		return err
@@ -71,11 +72,12 @@ func runAsk(args []string, cfg config.Config, dev bool) error {
 		return fmt.Errorf("hey-duo: невалидный режим %q (fast/normal/deliberate/critical)", modeName)
 	}
 
-	a, err := buildApp(cfg, dev)
+	a, err := buildApp(cfg, dev, logPath)
 	if err != nil {
 		return err
 	}
 	defer a.db.Close()
+	defer a.closeLog()
 
 	ctx := context.Background()
 	task, err := domain.NewTask("task-"+strconv.FormatInt(time.Now().UnixNano(), 10), flags.question, "", nil, mode)
@@ -102,22 +104,27 @@ func runAsk(args []string, cfg config.Config, dev bool) error {
 	}
 
 	if flags.asJSON {
-		return printDecisionJSON(task, decision)
+		return printDecisionJSON(task, decision, a.stats)
 	}
 	printDecisionText(task, decision)
+	printStatsText(a.stats)
 	return nil
 }
 
 // printDecisionJSON выводит решение в JSON.
-func printDecisionJSON(task domain.Task, decision domain.Decision) error {
+func printDecisionJSON(task domain.Task, decision domain.Decision, stats *llm.StatsCollector) error {
 	out := struct {
 		TaskID   string            `json:"task_id"`
 		Mode     domain.TaskMode   `json:"mode"`
 		Decision domain.Decision   `json:"decision"`
+		Stats    map[string]llm.ParticipantStats `json:"stats,omitempty"`
 	}{
 		TaskID: task.ID,
 		Mode:   task.Mode,
 		Decision: decision,
+	}
+	if stats != nil {
+		out.Stats = stats.All()
 	}
 	data, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {
@@ -125,6 +132,35 @@ func printDecisionJSON(task domain.Task, decision domain.Decision) error {
 	}
 	fmt.Println(string(data))
 	return nil
+}
+
+// printStatsText выводит статистику вызовов по каждому участнику.
+func printStatsText(stats *llm.StatsCollector) {
+	if stats == nil {
+		return
+	}
+	all := stats.All()
+	if len(all) == 0 {
+		return
+	}
+
+	var (
+		totalTokens int
+		totalTime   time.Duration
+	)
+	fmt.Println("Расход:")
+	for _, id := range []string{"participant-a", "participant-b"} {
+		s, ok := all[id]
+		if !ok {
+			continue
+		}
+		fmt.Printf("  %s: запросов %d · токенов %d (вход %d / выход %d) · время %s (последний запрос %s)\n",
+			id, s.Requests, s.TotalTokens(), s.PromptTokens, s.CompletionTokens,
+			formatDuration(s.TotalDuration), formatDuration(s.LastDuration))
+		totalTokens += s.TotalTokens()
+		totalTime += s.TotalDuration
+	}
+	fmt.Printf("  итого: токенов %d · время %s\n", totalTokens, totalTime)
 }
 
 // printDecisionText выводит решение в человекочитаемом виде.

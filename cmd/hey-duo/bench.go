@@ -20,6 +20,7 @@ import (
 	ctxb "github.com/radamsa/duo-ex-arca/internal/context"
 	"github.com/radamsa/duo-ex-arca/internal/debate"
 	"github.com/radamsa/duo-ex-arca/internal/domain"
+	"github.com/radamsa/duo-ex-arca/internal/llm"
 	"github.com/radamsa/duo-ex-arca/internal/storage/sqlite"
 )
 
@@ -73,7 +74,7 @@ func parseBenchFlags(args []string) (benchFlags, error) {
 }
 
 // runBench выполняет подкоманду bench.
-func runBench(args []string, cfg config.Config, dev bool) error {
+func runBench(args []string, cfg config.Config, dev bool, logPath string) error {
 	flags, err := parseBenchFlags(args)
 	if err != nil {
 		return err
@@ -101,11 +102,12 @@ func runBench(args []string, cfg config.Config, dev bool) error {
 
 	// Инструментированный pipeline: токены собираются обёрткой вокруг LLM.
 	counter := bench.NewTokenCounter()
-	a, err := buildBenchApp(cfg, counter, dev)
+	a, err := buildBenchApp(cfg, counter, dev, logPath)
 	if err != nil {
 		return err
 	}
 	defer a.db.Close()
+	defer a.closeLog()
 
 	benchRunner, err := bench.NewRunner(a.runner)
 	if err != nil {
@@ -174,17 +176,24 @@ func truncateText(s string, max int) string {
 }
 
 // buildBenchApp собирает pipeline с подсчётом токенов (TASK-153).
-func buildBenchApp(cfg config.Config, counter *bench.TokenCounter, dev bool) (*app, error) {
+func buildBenchApp(cfg config.Config, counter *bench.TokenCounter, dev bool, logPath string) (*app, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 
+	logFile, err := openLogFile(logPath)
+	if err != nil {
+		return nil, err
+	}
+
+	stats := llm.NewStatsCollector()
 	contextBuilder := ctxb.New()
-	participantA := debate.NewParticipant("participant-a", bench.Instrument(maybeDebug("participant-a", newClient(cfg.LLM.ParticipantA, llmTimeout(cfg)), dev), counter))
-	participantB := debate.NewParticipant("participant-b", bench.Instrument(maybeDebug("participant-b", newClient(cfg.LLM.ParticipantB, llmTimeout(cfg)), dev), counter))
+	participantA := debate.NewParticipant("participant-a", bench.Instrument(newParticipantLLM("participant-a", cfg.LLM.ParticipantA, llmTimeout(cfg), dev, logFile, stats), counter))
+	participantB := debate.NewParticipant("participant-b", bench.Instrument(newParticipantLLM("participant-b", cfg.LLM.ParticipantB, llmTimeout(cfg), dev, logFile, stats), counter))
 
 	db, err := sqlite.Open(cfg.Storage.Path)
 	if err != nil {
+		_ = logFile.Close()
 		return nil, err
 	}
 	closeOnError := func(e error) (*app, error) {
@@ -198,7 +207,7 @@ func buildBenchApp(cfg config.Config, counter *bench.TokenCounter, dev bool) (*a
 	var activity *activityReporter
 	var notify debate.NotifyFunc
 	if !dev {
-		activity = newActivityReporter(os.Stdout)
+		activity = newActivityReporter(os.Stdout, stats)
 		notify = activity.set
 	}
 
@@ -236,5 +245,7 @@ func buildBenchApp(cfg config.Config, counter *bench.TokenCounter, dev bool) (*a
 		benchRepo: sqlite.NewBenchmarkRepository(db),
 		cfg:       cfg,
 		activity:  activity,
+		logFile:   logFile,
+		stats:     stats,
 	}, nil
 }

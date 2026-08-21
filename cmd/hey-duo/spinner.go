@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/radamsa/duo-ex-arca/internal/llm"
 )
 
 // spinnerFrames — кадры анимации (брайлевский спиннер).
@@ -24,6 +26,7 @@ type activityReporter struct {
 	mu     sync.Mutex
 	stages map[string]string
 	order  []string // стабильный порядок участников появления
+	stats  *llm.StatsCollector
 
 	w   io.Writer
 	tty bool // рисуем только в терминал; при перенаправлении вывода молчим
@@ -36,8 +39,9 @@ type activityReporter struct {
 }
 
 // newActivityReporter создаёт репортер. Рисование включается только
-// если w — терминал.
-func newActivityReporter(w io.Writer) *activityReporter {
+// если w — терминал. stats опционален: если задан, в строку добавляются
+// токены и время каждого участника.
+func newActivityReporter(w io.Writer, stats *llm.StatsCollector) *activityReporter {
 	tty := false
 	if f, ok := w.(*os.File); ok {
 		if info, err := f.Stat(); err == nil {
@@ -46,6 +50,7 @@ func newActivityReporter(w io.Writer) *activityReporter {
 	}
 	return &activityReporter{
 		stages: make(map[string]string),
+		stats:  stats,
 		w:      w,
 		tty:    tty,
 		stop:   make(chan struct{}),
@@ -125,13 +130,42 @@ func (r *activityReporter) stopAndWait() {
 }
 
 // renderLocked собирает строку активности: «⠋ participant-a: предлагает
-// решение · participant-b: критикует оппонента». Вызывать под мьютексом.
+// решение [1.2k tok · 12.3s] · participant-b: ...». Вызывать под мьютексом.
 func (r *activityReporter) renderLocked(frame string) string {
 	parts := make([]string, 0, len(r.order))
 	for _, id := range r.order {
-		parts = append(parts, id+": "+r.stages[id])
+		part := id + ": " + r.stages[id]
+		if r.stats != nil {
+			s := r.stats.Snapshot(id)
+			if s.Requests > 0 {
+				part += fmt.Sprintf(" [%s tok · %s]", formatTokens(s.TotalTokens()), formatDuration(s.TotalDuration))
+			}
+		}
+		parts = append(parts, part)
 	}
 	return frame + " " + strings.Join(parts, " · ")
+}
+
+// formatTokens форматирует количество токенов компактно: 980 / 1.2k / 3.4M.
+func formatTokens(n int) string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+	case n >= 1000:
+		return fmt.Sprintf("%.1fk", float64(n)/1000)
+	default:
+		return fmt.Sprintf("%d", n)
+	}
+}
+
+// formatDuration форматирует длительность компактно: 8.3s / 1m12s.
+func formatDuration(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%.1fs", d.Seconds())
+	}
+	min := int(d.Minutes())
+	sec := int(d.Seconds()) % 60
+	return fmt.Sprintf("%dm%ds", min, sec)
 }
 
 // writeLocked пишет строку с \r и паддингом до длины предыдущей,

@@ -21,18 +21,26 @@ var pingPrompt = llm.GenerationRequest{
 
 // runHealth проверяет доступность обоих участников и возвращает ошибку,
 // если хотя бы один недоступен.
-func runHealth(_ []string, cfg config.Config, dev bool) error {
+func runHealth(_ []string, cfg config.Config, dev bool, logPath string) error {
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
 
-	clientA := maybeDebug("participant-a", newClient(cfg.LLM.ParticipantA, llmTimeout(cfg)), dev)
-	clientB := maybeDebug("participant-b", newClient(cfg.LLM.ParticipantB, llmTimeout(cfg)), dev)
+	logFile, err := openLogFile(logPath)
+	if err != nil {
+		return err
+	}
+	if logFile != nil {
+		defer logFile.Close()
+	}
+
+	clientA := newParticipantLLM("participant-a", cfg.LLM.ParticipantA, llmTimeout(cfg), dev, logFile, nil)
+	clientB := newParticipantLLM("participant-b", cfg.LLM.ParticipantB, llmTimeout(cfg), dev, logFile, nil)
 
 	// В режиме --dev спиннер не нужен: ход проверки виден в stderr.
 	var activity *activityReporter
 	if !dev {
-		activity = newActivityReporter(os.Stdout)
+		activity = newActivityReporter(os.Stdout, nil)
 	}
 
 	okA := healthCheck(activity, "participant-a", cfg.LLM.ParticipantA, clientA)

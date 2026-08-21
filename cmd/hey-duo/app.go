@@ -3,6 +3,8 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"time"
@@ -41,11 +43,35 @@ func newClient(p config.ParticipantConfig, timeout time.Duration) *llm.Client {
 
 // maybeDebug в режиме --dev оборачивает клиента в отладочный декоратор,
 // пишущий полные промпты и ответы модели в stderr.
-func maybeDebug(label string, inner *llm.Client, dev bool) llm.LLM {
+func maybeDebug(label string, inner llm.LLM, dev bool) llm.LLM {
 	if !dev {
 		return inner
 	}
 	return llm.NewDebugClient(label, os.Stderr, inner)
+}
+
+// newParticipantLLM собирает LLM клиента участника: HTTP-клиент с
+// таймаутом, при заданном logW — запись запросов/ответов в лог-файл,
+// при dev — дублирование в stderr. Если stats не nil, вызовы учитываются.
+func newParticipantLLM(label string, p config.ParticipantConfig, timeout time.Duration, dev bool, logW io.Writer, stats *llm.StatsCollector) llm.LLM {
+	var inner llm.LLM = newClient(p, timeout)
+	if logW != nil {
+		inner = llm.NewDebugClient(label, logW, inner)
+	}
+	inner = llm.WithStats(label, inner, stats)
+	return maybeDebug(label, inner, dev)
+}
+
+// openLogFile открывает файл лога в режиме дозаписи (nil, если путь пуст).
+func openLogFile(path string) (*os.File, error) {
+	if path == "" {
+		return nil, nil
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("hey-duo: не удалось открыть файл лога %s: %w", path, err)
+	}
+	return f, nil
 }
 
 // app — собранный агент: runner и репозитории.
@@ -58,20 +84,37 @@ type app struct {
 	benchRepo *sqlite.BenchmarkRepository
 	cfg       config.Config
 	activity  *activityReporter
+	logFile   *os.File
+	stats     *llm.StatsCollector
+}
+
+// closeLog закрывает файл лога, если он открыт.
+func (a *app) closeLog() {
+	if a.logFile != nil {
+		_ = a.logFile.Close()
+		a.logFile = nil
+	}
 }
 
 // buildApp собирает pipeline: клиенты -> движок -> runner -> хранилище.
-func buildApp(cfg config.Config, dev bool) (*app, error) {
+func buildApp(cfg config.Config, dev bool, logPath string) (*app, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 
-	participantA := debate.NewParticipant("participant-a", maybeDebug("participant-a", newClient(cfg.LLM.ParticipantA, llmTimeout(cfg)), dev))
-	participantB := debate.NewParticipant("participant-b", maybeDebug("participant-b", newClient(cfg.LLM.ParticipantB, llmTimeout(cfg)), dev))
+	logFile, err := openLogFile(logPath)
+	if err != nil {
+		return nil, err
+	}
+
+	stats := llm.NewStatsCollector()
+	participantA := debate.NewParticipant("participant-a", newParticipantLLM("participant-a", cfg.LLM.ParticipantA, llmTimeout(cfg), dev, logFile, stats))
+	participantB := debate.NewParticipant("participant-b", newParticipantLLM("participant-b", cfg.LLM.ParticipantB, llmTimeout(cfg), dev, logFile, stats))
 	contextBuilder := ctxb.New()
 
 	db, err := sqlite.Open(cfg.Storage.Path)
 	if err != nil {
+		_ = logFile.Close()
 		return nil, err
 	}
 	closeOnError := func(e error) (*app, error) {
@@ -84,11 +127,11 @@ func buildApp(cfg config.Config, dev bool) (*app, error) {
 
 	// Спиннер активности не нужен в режиме --dev: там весь ход дебата
 	// и так виден в stderr.
-	var activity *activityReporter
+	var act *activityReporter
 	var notify debate.NotifyFunc
 	if !dev {
-		activity = newActivityReporter(os.Stdout)
-		notify = activity.set
+		act = newActivityReporter(os.Stdout, stats)
+		notify = act.set
 	}
 
 	engine, err := debate.NewEngine(debate.EngineConfig{
@@ -123,7 +166,9 @@ func buildApp(cfg config.Config, dev bool) (*app, error) {
 		debates:  sqlite.NewDebateRepository(db),
 		traces:   traceRepo,
 		cfg:      cfg,
-		activity: activity,
+		activity: act,
+		logFile:  logFile,
+		stats:    stats,
 	}, nil
 }
 

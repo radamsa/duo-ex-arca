@@ -280,6 +280,41 @@ func TestCLIDevMode(t *testing.T) {
 	}
 }
 
+// TestCLILogFile --log пишет полные запросы и ответы моделей в файл.
+func TestCLILogFile(t *testing.T) {
+	urlA, urlB := startLLMPair(t, func(p phase) (int, string) {
+		return http.StatusOK, okPhaseResponse(p)
+	})
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "arca.yaml")
+	writeConfig(t, cfgPath, urlA, urlB)
+	logPath := filepath.Join(dir, "debate.log")
+
+	out, code := runCLI(t, "ask", "--config", cfgPath, "--mode", "normal", "--log", logPath, "--json", "Какую базу использовать?")
+	if code != 0 {
+		t.Fatalf("exit=%d, вывод: %s", code, out)
+	}
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("чтение лога: %v", err)
+	}
+	log := string(data)
+
+	for _, want := range []string{
+		"participant-a: запрос",
+		"participant-b: запрос",
+		"participant-a: ответ",
+		"participant-b: ответ",
+		"Использовать SQLite", // содержимое ответа mock-модели
+	} {
+		if !strings.Contains(log, want) {
+			t.Errorf("лог не содержит %q:\n%s", want, log)
+		}
+	}
+}
+
 // TestCLIAskNormalFullPipeline — полный дебатный pipeline.
 func TestCLIAskNormalFullPipeline(t *testing.T) {
 	urlA, urlB := startLLMPair(t, func(p phase) (int, string) {
